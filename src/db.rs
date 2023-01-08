@@ -90,10 +90,10 @@ impl Cache {
         let pool = match pool_is_valid(&pool).await {
             Ok(()) => pool,
             Err(e) => {
-                log::warn!("cache {} is invalid, wiping it. {}", path.display(), e);
+                log::warn!("cache {} is invalid, wiping it. {:#}", path.display(), e);
                 pool.close().await;
                 std::fs::remove_file(&path).unwrap_or_else(|e| {
-                    log::warn!("error removing corrupted cache {}: {}", path.display(), e)
+                    log::warn!("error removing corrupted cache {}: {:#}", path.display(), e)
                 });
                 let pool = SqlitePool::connect(&url)
                     .await
@@ -111,7 +111,7 @@ impl Cache {
     pub async fn open() -> anyhow::Result<Cache> {
         match Cache::open_weak().await {
             Err(e) => {
-                log::warn!("could use on disk cache ({}), running cache in memory", e);
+                log::warn!("could use on disk cache ({:#}), running cache in memory", e);
                 let pool = SqlitePool::connect(":memory:")
                     .await
                     .context("opening in memory sql db")?;
