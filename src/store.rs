@@ -4,8 +4,9 @@ use object::read::Object;
 use once_cell::unsync::Lazy;
 use sqlx::{sqlite::SqliteConnectOptions, ConnectOptions, Connection, Row};
 use std::{
-    ffi::OsString,
-    os::unix::prelude::OsStringExt,
+    collections::HashSet,
+    ffi::{OsStr, OsString},
+    os::unix::prelude::{OsStrExt, OsStringExt},
     path::{Path, PathBuf},
     time::Duration,
 };
@@ -40,16 +41,30 @@ fn register_store_path(storepath: &Path, sendto: Sender<Entry>) {
         }
         Ok(deriver) => {
             if deriver.is_file() {
-                (Some(deriver), None)
+                let source = match get_source(deriver.as_path()) {
+                    Err(e) => {
+                        log::info!(
+                            "no deriver for {} (deriver of {}): {:#}",
+                            deriver.display(),
+                            storepath.display(),
+                            e
+                        );
+                        None
+                    }
+                    Ok(s) => Some(s),
+                };
+                (Some(deriver), source)
             } else {
                 (None, None)
             }
         }
     });
-    if storepath.ends_with("-debug") {
+    let storepath_os: &OsStr = storepath.as_ref();
+    if storepath_os.as_bytes().ends_with(b"-debug") {
         let mut root = storepath.to_owned();
         root.push("lib");
         root.push("debug");
+        root.push(".build-id");
         if !root.is_dir() {
             return;
         };
@@ -68,7 +83,7 @@ fn register_store_path(storepath: &Path, sendto: Sender<Entry>) {
                 }
                 Ok(mid) => mid,
             };
-            if mid.file_type().map(|x| x.is_dir()).unwrap_or(false) {
+            if !mid.file_type().map(|x| x.is_dir()).unwrap_or(false) {
                 continue;
             };
             let mid_path = mid.path();
@@ -112,7 +127,9 @@ fn register_store_path(storepath: &Path, sendto: Sender<Entry>) {
                 let entry = Entry {
                     debuginfo: end.path().to_str().map(|s| s.to_owned()),
                     executable: None,
-                    source: source.clone(),
+                    source: source
+                        .as_ref()
+                        .and_then(|path| path.to_str().map(|s| s.to_owned())),
                     buildid,
                 };
                 if let Err(e) = sendto.blocking_send(entry) {
@@ -183,7 +200,9 @@ fn register_store_path(storepath: &Path, sendto: Sender<Entry>) {
             let (_, source) = &*deriver_source;
             let entry = Entry {
                 buildid,
-                source: source.clone(),
+                source: source
+                    .as_ref()
+                    .and_then(|path| path.to_str().map(|s| s.to_owned())),
                 executable: path.to_str().map(|s| s.to_owned()),
                 debuginfo: debuginfo.and_then(|path| path.to_str().map(|s| s.to_owned())),
             };
@@ -249,6 +268,35 @@ fn get_debug_output(drvpath: &Path) -> anyhow::Result<Option<PathBuf>> {
         }
     }
     return Ok(None);
+}
+
+/// Obtains the source store path corresponding to this derivation
+///
+/// The derivation must exist.
+///
+/// Source is understood as `src = `, multiple sources or patches are not supported.
+fn get_source(drvpath: &Path) -> anyhow::Result<PathBuf> {
+    let mut cmd = std::process::Command::new("nix-store");
+    cmd.arg("--query").arg("--binding").arg("src").arg(drvpath);
+    log::info!("Running {:?}", &cmd);
+    let out = cmd.output().with_context(|| format!("running {:?}", cmd))?;
+    if !out.status.success() {
+        anyhow::bail!("{:?} failed: {}", cmd, String::from_utf8_lossy(&out.stderr));
+    }
+    let n = out.stdout.len();
+    if n <= 1 || out.stdout[n - 1] != b'\n' {
+        anyhow::bail!(
+            "{:?} returned weird output: {}",
+            cmd,
+            String::from_utf8_lossy(&out.stderr)
+        );
+    }
+    let path = PathBuf::from(OsString::from_vec(out.stdout[..n - 1].to_owned()));
+    if !path.is_absolute() {
+        // nix returns `unknown-deriver` when it does not know
+        anyhow::bail!("no deriver");
+    };
+    Ok(path)
 }
 
 /// Return the build id of this file.
@@ -383,4 +431,56 @@ async fn get_new_store_path_batch(
         anyhow::bail!("read paths with 0 registration time...");
     }
     Ok((paths, max_time + 1))
+}
+
+/// Attempts to find a file that matches the request in an existing source path.
+pub fn get_file_for_source(source: &Path, request: &Path) -> anyhow::Result<Option<PathBuf>> {
+    if !source.is_dir() {
+        // TODO: support archives...
+        return Ok(None);
+    }
+    let target: Vec<&OsStr> = request.iter().collect();
+    // invariant: we only keep candidates which have same path as target for components i..
+    let mut i = target.len() - 1;
+    let mut candidates: Vec<_> = Vec::new();
+    for file in walkdir::WalkDir::new(source) {
+        match file {
+            Err(e) => {
+                log::warn!("failed to walk source {}: {:#}", source.display(), e);
+                continue;
+            }
+            Ok(f) => {
+                if Some(&f.file_name()) == target.get(i) {
+                    candidates.push(f.path().to_path_buf());
+                }
+            }
+        }
+    }
+    if candidates.len() == 0 {
+        return Ok(None);
+    }
+    let candidates_split: HashSet<(usize, Vec<&OsStr>)> = candidates
+        .iter()
+        .map(|p| p.iter().collect())
+        .enumerate()
+        .collect();
+    let mut candidates_ref: HashSet<&(usize, Vec<&OsStr>)> = candidates_split.iter().collect();
+    while candidates_ref.len() >= 2 && i > 0 {
+        i -= 1;
+        let next: HashSet<&(usize, Vec<&OsStr>)> = candidates_ref
+            .iter()
+            .cloned()
+            .filter(|&(_, ref c)| c.get(i) == target.get(i))
+            .collect();
+        if next.len() == 0 {
+            anyhow::bail!(
+                "cannot tell {:?} apart for target {}",
+                &candidates_ref,
+                request.display()
+            );
+        };
+        candidates_ref = next;
+    }
+    let (winner, _) = candidates_ref.iter().next().unwrap();
+    Ok(Some(candidates[*winner].clone()))
 }

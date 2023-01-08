@@ -154,6 +154,21 @@ impl Cache {
         })
     }
 
+    /// Get the store path where the source of this buildid is.
+    ///
+    /// The path may have been gc-ed, you are responsible to ensure it exists.
+    pub async fn get_source(&self, buildid: &str) -> anyhow::Result<Option<String>> {
+        let row = sqlx::query("select source from builds where buildid = $1;")
+            .bind(buildid)
+            .fetch_optional(&self.sqlite)
+            .await
+            .context("reading executable from cache db")?;
+        Ok(match row {
+            None => None,
+            Some(r) => Some(r.try_get("source")?),
+        })
+    }
+
     /// Register information for a buildid
     ///
     /// Only one of the each entry fields is stored for each buildid, if register is called serval times

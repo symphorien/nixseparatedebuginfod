@@ -5,21 +5,22 @@ use actix_web::middleware::Logger;
 use actix_web::{get, web, App, HttpResponse, HttpServer, Responder};
 use anyhow::Context;
 use std::fmt::{Debug, Display};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use crate::db::Cache;
-use crate::store::realise;
+use crate::store::{get_file_for_source, realise};
 
 #[derive(Debug)]
 struct NotFoundError<E: Display + Debug>(E);
 impl<E: Display + Debug> ResponseError for NotFoundError<E> {
     fn status_code(&self) -> StatusCode {
+        log::info!("returning 404 because of {}", &self);
         StatusCode::NOT_FOUND
     }
 }
 impl<E: Display + Debug> Display for NotFoundError<E> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        std::fmt::Display::fmt(&self.0, f)
+        write!(f, "{:#}", &self.0)
     }
 }
 
@@ -55,13 +56,41 @@ async fn get_executable(
     unwrap_file(res).await
 }
 
-#[get("/buildid/{buildid}/source/{path}")]
-async fn get_source(_buildid: web::Path<String>, _path: web::Path<String>) -> impl Responder {
-    HttpResponse::NotImplemented().finish()
+async fn fetch_and_get_source(
+    buildid: String,
+    request: PathBuf,
+    cache: &'static Cache,
+) -> anyhow::Result<Option<PathBuf>> {
+    let source = cache
+        .get_source(&buildid)
+        .await
+        .with_context(|| format!("getting source of {} from cache", &buildid))?;
+    let source = match source {
+        None => return Ok(None),
+        Some(x) => PathBuf::from(x),
+    };
+    realise(source.as_ref())
+        .await
+        .with_context(|| format!("realizing source {}", source.display()))?;
+    let file =
+        tokio::task::spawn_blocking(move || get_file_for_source(source.as_ref(), request.as_ref()))
+            .await?
+            .context("looking in source")?;
+    Ok(file)
+}
+
+#[get("/buildid/{buildid}/source/{path:.*}")]
+async fn get_source(
+    param: web::Path<(String, String)>,
+    cache: web::Data<&'static Cache>,
+) -> impl Responder {
+    let path: &str = &param.1;
+    let request = PathBuf::from(path);
+    unwrap_file(fetch_and_get_source(param.0.to_owned(), request, &cache).await).await
 }
 
 #[get("/buildid/{buildid}/section/{section}")]
-async fn get_section(_buildid: web::Path<String>, _section: web::Path<String>) -> impl Responder {
+async fn get_section(_param: web::Path<(String, String)>) -> impl Responder {
     HttpResponse::NotImplemented().finish()
 }
 
