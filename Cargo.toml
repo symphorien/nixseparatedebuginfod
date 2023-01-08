@@ -1,0 +1,22 @@
+[package]
+name = "nixseparatedebuginfod"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+actix-files = "0.6.2"
+actix-web = "4.2.1"
+anyhow = "1.0.68"
+base16 = "0.2.1"
+directories = "4.0.1"
+env_logger = "0.10.0"
+futures = "0.3.25"
+log = "0.4.17"
+object = "0.30.1"
+once_cell = "1.17.0"
+sqlx = { version = "0.6", features = [ "runtime-actix-rustls", "sqlite" ] }
+threadpool = "1.8.1"
+tokio = { version = "1.24.1", features = ["process", "fs", "sync"] }
+walkdir = "2.3.2"
