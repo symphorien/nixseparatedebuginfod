@@ -7,6 +7,8 @@ mkShell {
     rust-analyzer
     sqlite
     (gdb.override { enableDebuginfod = true; })
+    pkg-config
   ];
+  buildInputs = [ libarchive ];
   RUST_BACKTRACE="full";
 }

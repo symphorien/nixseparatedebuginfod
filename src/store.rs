@@ -299,6 +299,30 @@ fn get_source(drvpath: &Path) -> anyhow::Result<PathBuf> {
     Ok(path)
 }
 
+/// Where a source file might be
+#[derive(Debug, Clone)]
+pub enum SourceLocation {
+    /// Inside an archive
+    Archive {
+        /// path of the archive
+        archive: PathBuf,
+        /// path of the file in the archive
+        member: PathBuf,
+    },
+    /// A file directly in the store
+    File(PathBuf),
+}
+
+impl SourceLocation {
+    /// Get the path against which we match the requested file name
+    fn member_path(&self) -> &Path {
+        match self {
+            SourceLocation::Archive { member, .. } => member.as_path(),
+            SourceLocation::File(path) => path.as_path(),
+        }
+    }
+}
+
 /// Return the build id of this file.
 ///
 /// If the file is not an executable returns Ok(None).
@@ -434,34 +458,54 @@ async fn get_new_store_path_batch(
 }
 
 /// Attempts to find a file that matches the request in an existing source path.
-pub fn get_file_for_source(source: &Path, request: &Path) -> anyhow::Result<Option<PathBuf>> {
-    if !source.is_dir() {
-        // TODO: support archives...
-        return Ok(None);
-    }
+pub fn get_file_for_source(
+    source: &Path,
+    request: &Path,
+) -> anyhow::Result<Option<SourceLocation>> {
     let target: Vec<&OsStr> = request.iter().collect();
     // invariant: we only keep candidates which have same path as target for components i..
     let mut i = target.len() - 1;
     let mut candidates: Vec<_> = Vec::new();
-    for file in walkdir::WalkDir::new(source) {
-        match file {
-            Err(e) => {
-                log::warn!("failed to walk source {}: {:#}", source.display(), e);
-                continue;
-            }
-            Ok(f) => {
-                if Some(&f.file_name()) == target.get(i) {
-                    candidates.push(f.path().to_path_buf());
+    let source_type = source
+        .metadata()
+        .with_context(|| format!("stat({})", source.display()))?;
+    if source_type.is_dir() {
+        for file in walkdir::WalkDir::new(source) {
+            match file {
+                Err(e) => {
+                    log::warn!("failed to walk source {}: {:#}", source.display(), e);
+                    continue;
                 }
+                Ok(f) => {
+                    if Some(&f.file_name()) == target.get(i) {
+                        candidates.push(SourceLocation::File(f.path().to_path_buf()));
+                    }
+                }
+            }
+        }
+    } else if source_type.is_file() {
+        let mut archive = std::fs::File::open(&source)
+            .with_context(|| format!("opening source archive {}", source.display()))?;
+        let member_list = compress_tools::list_archive_files(&mut archive)
+            .with_context(|| format!("listing files in source archive {}", source.display()))?;
+        for member in member_list {
+            if Path::new(&member).file_name().as_ref() == target.get(i) {
+                candidates.push(SourceLocation::Archive {
+                    archive: source.to_path_buf(),
+                    member: PathBuf::from(member),
+                });
             }
         }
     }
     if candidates.len() == 0 {
         return Ok(None);
     }
+    if candidates.len() == 1 {
+        return Ok(Some(candidates[0].clone()));
+    }
     let candidates_split: HashSet<(usize, Vec<&OsStr>)> = candidates
         .iter()
-        .map(|p| p.iter().collect())
+        .map(|p| p.member_path().iter().collect())
         .enumerate()
         .collect();
     let mut candidates_ref: HashSet<&(usize, Vec<&OsStr>)> = candidates_split.iter().collect();
@@ -474,8 +518,9 @@ pub fn get_file_for_source(source: &Path, request: &Path) -> anyhow::Result<Opti
             .collect();
         if next.len() == 0 {
             anyhow::bail!(
-                "cannot tell {:?} apart for target {}",
+                "cannot tell {:?} apart from {} for target {}",
                 &candidates_ref,
+                &source.display(),
                 request.display()
             );
         };

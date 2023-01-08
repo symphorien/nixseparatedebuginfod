@@ -1,14 +1,15 @@
 use actix_files::NamedFile;
+use actix_web::body::{BodyStream, MessageBody};
 use actix_web::error::ResponseError;
 use actix_web::http::StatusCode;
 use actix_web::middleware::Logger;
-use actix_web::{get, web, App, HttpResponse, HttpServer, Responder};
+use actix_web::{get, web, App, Either, HttpResponse, HttpServer, Responder};
 use anyhow::Context;
 use std::fmt::{Debug, Display};
 use std::path::{Path, PathBuf};
 
 use crate::db::Cache;
-use crate::store::{get_file_for_source, realise};
+use crate::store::{get_file_for_source, realise, SourceLocation};
 
 #[derive(Debug)]
 struct NotFoundError<E: Display + Debug>(E);
@@ -60,7 +61,7 @@ async fn fetch_and_get_source(
     buildid: String,
     request: PathBuf,
     cache: &'static Cache,
-) -> anyhow::Result<Option<PathBuf>> {
+) -> anyhow::Result<Option<SourceLocation>> {
     let source = cache
         .get_source(&buildid)
         .await
@@ -79,6 +80,38 @@ async fn fetch_and_get_source(
     Ok(file)
 }
 
+async fn uncompress_archive_file_to_http_body(
+    archive: PathBuf,
+    member: PathBuf,
+) -> anyhow::Result<impl MessageBody> {
+    let archive_file = tokio::fs::File::open(&archive)
+        .await
+        .with_context(|| format!("opening source archive {}", archive.display()))?;
+    let member_path = member
+        .to_str()
+        .ok_or_else(|| anyhow::anyhow!("non utf8 archive name"))?
+        .to_string();
+    let (asyncwriter, asyncreader) = tokio::io::duplex(256 * 1024);
+    let streamreader = tokio_util::io::ReaderStream::new(asyncreader);
+    let decompressor_future = async move {
+        if let Err(e) = compress_tools::tokio_support::uncompress_archive_file(
+            archive_file,
+            asyncwriter,
+            &member_path,
+        )
+        .await
+        {
+            log::error!(
+                "expanding {} from {}: {:#}",
+                member.display(),
+                archive.display(),
+                e
+            );
+        }
+    };
+    tokio::spawn(decompressor_future);
+    Ok(BodyStream::new(streamreader))
+}
 #[get("/buildid/{buildid}/source/{path:.*}")]
 async fn get_source(
     param: web::Path<(String, String)>,
@@ -86,7 +119,25 @@ async fn get_source(
 ) -> impl Responder {
     let path: &str = &param.1;
     let request = PathBuf::from(path);
-    unwrap_file(fetch_and_get_source(param.0.to_owned(), request, &cache).await).await
+    let sourcefile = fetch_and_get_source(param.0.to_owned(), request, &cache).await;
+    match sourcefile {
+        Ok(Some(SourceLocation::File(path))) => match NamedFile::open(&path) {
+            Err(e) => Either::Left(HttpResponse::NotFound().body(format!(
+                "opening {} {:#}",
+                path.display(),
+                e
+            ))),
+            Ok(body) => Either::Right(Either::Left(body)),
+        },
+        Ok(Some(SourceLocation::Archive { archive, member })) => {
+            match uncompress_archive_file_to_http_body(archive, member).await {
+                Err(e) => Either::Left(HttpResponse::NotFound().body(format!("{:#}", e))),
+                Ok(body) => Either::Right(Either::Right(HttpResponse::Ok().body(body))),
+            }
+        }
+        Ok(None) => Either::Left(HttpResponse::NotFound().body("not found")),
+        Err(e) => Either::Left(HttpResponse::NotFound().body(format!("{:#}", e))),
+    }
 }
 
 #[get("/buildid/{buildid}/section/{section}")]
