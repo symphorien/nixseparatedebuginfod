@@ -132,10 +132,25 @@ impl Cache {
             .bind(buildid)
             .fetch_optional(&self.sqlite)
             .await
-            .context("reading executable from cache db")?;
+            .context("reading debuginfo from cache db")?;
         Ok(match row {
             None => None,
             Some(r) => Some(r.try_get("debuginfo")?),
+        })
+    }
+
+    /// Get the path of an elf object containing text for this buildid.
+    ///
+    /// The path may have been gc-ed, you are responsible to ensure it exists.
+    pub async fn get_executable(&self, buildid: &str) -> anyhow::Result<Option<String>> {
+        let row = sqlx::query("select executable from builds where buildid = $1;")
+            .bind(buildid)
+            .fetch_optional(&self.sqlite)
+            .await
+            .context("reading executable from cache db")?;
+        Ok(match row {
+            None => None,
+            Some(r) => Some(r.try_get("executable")?),
         })
     }
 

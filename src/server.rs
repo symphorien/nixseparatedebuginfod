@@ -2,7 +2,7 @@ use actix_files::NamedFile;
 use actix_web::error::ResponseError;
 use actix_web::http::StatusCode;
 use actix_web::middleware::Logger;
-use actix_web::{get, web, App, HttpServer, Responder};
+use actix_web::{get, web, App, HttpResponse, HttpServer, Responder};
 use anyhow::Context;
 use std::fmt::{Debug, Display};
 use std::path::Path;
@@ -46,23 +46,23 @@ async fn get_debuginfo(
     unwrap_file(res).await
 }
 
-fn not_implemented() -> Result<String, NotFoundError<anyhow::Error>> {
-    Err(NotFoundError(anyhow::anyhow!("not implemented")))
-}
-
 #[get("/buildid/{buildid}/executable")]
-async fn get_executable(_buildid: web::Path<String>) -> impl Responder {
-    not_implemented()
+async fn get_executable(
+    buildid: web::Path<String>,
+    cache: web::Data<&'static Cache>,
+) -> impl Responder {
+    let res = cache.get_executable(&buildid).await;
+    unwrap_file(res).await
 }
 
 #[get("/buildid/{buildid}/source/{path}")]
 async fn get_source(_buildid: web::Path<String>, _path: web::Path<String>) -> impl Responder {
-    not_implemented()
+    HttpResponse::NotImplemented().finish()
 }
 
 #[get("/buildid/{buildid}/section/{section}")]
 async fn get_section(_buildid: web::Path<String>, _section: web::Path<String>) -> impl Responder {
-    not_implemented()
+    HttpResponse::NotImplemented().finish()
 }
 
 pub async fn run_server() -> anyhow::Result<()> {
