@@ -1,16 +1,19 @@
 use crate::db::{Cache, Entry, Timestamp};
+use crate::log::ResultExt;
 use anyhow::Context;
+use futures_util::{future::join_all, stream::FuturesOrdered, FutureExt, StreamExt};
 use object::read::Object;
 use once_cell::unsync::Lazy;
 use sqlx::{sqlite::SqliteConnectOptions, ConnectOptions, Connection, Row};
+use std::sync::Arc;
 use std::{
     collections::HashSet,
     ffi::{OsStr, OsString},
     os::unix::prelude::{OsStrExt, OsStringExt},
     path::{Path, PathBuf},
-    time::Duration,
 };
-use tokio::sync::mpsc::Sender;
+use tokio::sync::{mpsc::Sender, Semaphore};
+use tokio::task::JoinHandle;
 
 pub async fn realise(path: &Path) -> anyhow::Result<()> {
     use tokio::fs::metadata;
@@ -30,8 +33,13 @@ pub async fn realise(path: &Path) -> anyhow::Result<()> {
 
 /// Walks a store path and attempts to register everything that has a buildid in it.
 fn register_store_path(storepath: &Path, sendto: Sender<Entry>) {
-    log::info!("examining {}", storepath.display());
-    if storepath.file_name().unwrap_or_default().as_bytes().ends_with(b".drv") {
+    log::debug!("examining {}", storepath.display());
+    if storepath
+        .file_name()
+        .unwrap_or_default()
+        .as_bytes()
+        .ends_with(b".drv")
+    {
         return;
     }
     if !storepath.is_dir() {
@@ -47,7 +55,7 @@ fn register_store_path(storepath: &Path, sendto: Sender<Entry>) {
                 let source = match get_source(deriver.as_path()) {
                     Err(e) => {
                         log::info!(
-                            "no deriver for {} (deriver of {}): {:#}",
+                            "no source for {} (deriver of {}): {:#}",
                             deriver.display(),
                             storepath.display(),
                             e
@@ -73,7 +81,7 @@ fn register_store_path(storepath: &Path, sendto: Sender<Entry>) {
         };
         let readroot = match std::fs::read_dir(&root) {
             Err(e) => {
-                log::info!("could not list {}: {:#}", root.display(), e);
+                log::warn!("could not list {}: {:#}", root.display(), e);
                 return;
             }
             Ok(r) => r,
@@ -81,7 +89,7 @@ fn register_store_path(storepath: &Path, sendto: Sender<Entry>) {
         for mid in readroot {
             let mid = match mid {
                 Err(e) => {
-                    log::info!("could not list {}: {:#}", root.display(), e);
+                    log::warn!("could not list {}: {:#}", root.display(), e);
                     continue;
                 }
                 Ok(mid) => mid,
@@ -97,7 +105,7 @@ fn register_store_path(storepath: &Path, sendto: Sender<Entry>) {
             };
             let read_mid = match std::fs::read_dir(&mid_path) {
                 Err(e) => {
-                    log::info!("could not list {}: {:#}", mid_path.display(), e);
+                    log::warn!("could not list {}: {:#}", mid_path.display(), e);
                     continue;
                 }
                 Ok(r) => r,
@@ -105,7 +113,7 @@ fn register_store_path(storepath: &Path, sendto: Sender<Entry>) {
             for end in read_mid {
                 let end = match end {
                     Err(e) => {
-                        log::info!("could not list {}: {:#}", mid_path.display(), e);
+                        log::warn!("could not list {}: {:#}", mid_path.display(), e);
                         continue;
                     }
                     Ok(end) => end,
@@ -135,9 +143,10 @@ fn register_store_path(storepath: &Path, sendto: Sender<Entry>) {
                         .and_then(|path| path.to_str().map(|s| s.to_owned())),
                     buildid,
                 };
-                if let Err(e) = sendto.blocking_send(entry) {
-                    log::warn!("failed to send entry: {:#}", e);
-                };
+                sendto
+                    .blocking_send(entry)
+                    .context("sending entry failed")
+                    .or_warn();
             }
         }
     } else {
@@ -148,8 +157,8 @@ fn register_store_path(storepath: &Path, sendto: Sender<Entry>) {
                 Some(deriver) => match get_debug_output(deriver.as_path()) {
                     Ok(None) => None,
                     Err(e) => {
-                        log::info!(
-                            "could not determine if the deriver {} of {} has a debug output: {}",
+                        log::warn!(
+                            "could not determine if the deriver {} of {} has a debug output: {:#}",
                             storepath.display(),
                             deriver.display(),
                             e
@@ -209,9 +218,10 @@ fn register_store_path(storepath: &Path, sendto: Sender<Entry>) {
                 executable: path.to_str().map(|s| s.to_owned()),
                 debuginfo: debuginfo.and_then(|path| path.to_str().map(|s| s.to_owned())),
             };
-            if let Err(e) = sendto.blocking_send(entry) {
-                log::warn!("failed to send entry: {:#}", e);
-            };
+            sendto
+                .blocking_send(entry)
+                .context("sending entry failed")
+                .or_warn();
         }
     }
 }
@@ -233,7 +243,7 @@ fn debuginfo_path_for(buildid: &str, debug_output: &Path) -> PathBuf {
 fn get_deriver(storepath: &Path) -> anyhow::Result<PathBuf> {
     let mut cmd = std::process::Command::new("nix-store");
     cmd.arg("--query").arg("--deriver").arg(storepath);
-    log::info!("Running {:?}", &cmd);
+    log::debug!("Running {:?}", &cmd);
     let out = cmd.output().with_context(|| format!("running {:?}", cmd))?;
     if !out.status.success() {
         anyhow::bail!("{:?} failed: {}", cmd, String::from_utf8_lossy(&out.stderr));
@@ -260,7 +270,7 @@ fn get_deriver(storepath: &Path) -> anyhow::Result<PathBuf> {
 fn get_debug_output(drvpath: &Path) -> anyhow::Result<Option<PathBuf>> {
     let mut cmd = std::process::Command::new("nix-store");
     cmd.arg("--query").arg("--outputs").arg(drvpath);
-    log::info!("Running {:?}", &cmd);
+    log::debug!("Running {:?}", &cmd);
     let out = cmd.output().with_context(|| format!("running {:?}", cmd))?;
     if !out.status.success() {
         anyhow::bail!("{:?} failed: {}", cmd, String::from_utf8_lossy(&out.stderr));
@@ -281,7 +291,7 @@ fn get_debug_output(drvpath: &Path) -> anyhow::Result<Option<PathBuf>> {
 fn get_source(drvpath: &Path) -> anyhow::Result<PathBuf> {
     let mut cmd = std::process::Command::new("nix-store");
     cmd.arg("--query").arg("--binding").arg("src").arg(drvpath);
-    log::info!("Running {:?}", &cmd);
+    log::debug!("Running {:?}", &cmd);
     let out = cmd.output().with_context(|| format!("running {:?}", cmd))?;
     if !out.status.success() {
         anyhow::bail!("{:?} failed: {}", cmd, String::from_utf8_lossy(&out.stderr));
@@ -354,65 +364,130 @@ fn get_buildid(path: &Path) -> anyhow::Result<Option<String>> {
     }
 }
 
-pub fn spawn_store_watcher(cache: &'static Cache) {
-    let threadpool = threadpool::ThreadPool::new(8);
-    let (path_sender, mut path_receiver) = tokio::sync::mpsc::channel::<PathBuf>(200);
-    let (path_done_sender, mut path_done_receiver) = tokio::sync::mpsc::channel(200);
-    let (entry_sender, mut entry_receiver) = tokio::sync::mpsc::channel(200);
-    tokio::spawn(async move {
-        while let Some(entry) = entry_receiver.recv().await {
-            log::info!("found {:?}", &entry);
-            if let Err(e) = cache.register(&entry).await {
-                log::warn!("failed to register {:?}: {:#}", &entry, e);
-            }
+const BATCH_SIZE: usize = 100;
+const N_WORKERS: usize = 4;
+pub struct StoreWatcher {
+    cache: &'static Cache,
+    semaphore: Arc<Semaphore>,
+}
+
+impl StoreWatcher {
+    pub fn new(cache: &'static Cache) -> Self {
+        Self {
+            cache,
+            semaphore: Arc::new(Semaphore::new(N_WORKERS)),
         }
-    });
-    std::thread::spawn(move || {
-        while let Some(path) = path_receiver.blocking_recv() {
-            let entry_sender_moved = entry_sender.clone();
-            let path_done_sender_moved = path_done_sender.clone();
-            threadpool.execute(move || {
-                register_store_path(path.as_path(), entry_sender_moved);
-                if let Err(e) = path_done_sender_moved.blocking_send(()) {
-                    log::warn!("failed to send {:?}: {:#}", (), e);
-                };
-            });
-        }
-    });
-    tokio::spawn(async move {
-        let mut from_timestamp = cache
+    }
+
+    pub async fn maybe_register_new_paths(&'static self) -> anyhow::Result<Option<JoinHandle<()>>> {
+        let timestamp = self
+            .cache
             .get_registration_timestamp()
             .await
-            .expect("problem with cache db");
-        loop {
-            match get_new_store_path_batch(from_timestamp).await {
-                Err(e) => {
-                    log::warn!("could not read nix db: {}", dbg!(e));
-                    tokio::time::sleep(Duration::from_secs(1)).await;
-                }
-                Ok((paths, _)) if paths.is_empty() => {
-                    log::info!("done reading store");
-                    tokio::time::sleep(Duration::from_secs(60)).await;
-                }
-                Ok((paths, time)) => {
-                    let n = paths.len();
-                    for path in paths {
-                        if let Err(e) = path_sender.send(path).await {
-                            log::warn!("failed to send path: {:#}", e);
-                        };
-                    }
-                    for _ in 0..n {
-                        path_done_receiver.recv().await;
-                    }
-                    if let Err(e) = cache.set_registration_timestamp(time).await {
-                        log::warn!("could not store timestamp to cache db: {}", dbg!(e));
-                    }
+            .context("reading cache timestamp")?;
+        let (paths, timestamp) = get_new_store_path_batch(timestamp)
+            .await
+            .context("looking for new paths registered in the nix store")?;
+        if paths.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(tokio::spawn(
+                self.register_new_paths(paths, timestamp),
+            )))
+        }
+    }
 
-                    from_timestamp = time;
+    async fn register_store_path(&self, path: PathBuf, sendto: Sender<Entry>) {
+        let path2 = path.clone();
+        let permit = self
+            .semaphore
+            .clone()
+            .acquire_owned()
+            .await
+            .expect("closed semaphore");
+        tokio::task::spawn_blocking(move || {
+            register_store_path(path.as_path(), sendto);
+            drop(permit);
+        })
+        .await
+        .with_context(|| format!("examining {} failed", path2.as_path().display()))
+        .or_warn();
+    }
+
+    async fn register_new_paths(&self, paths: Vec<PathBuf>, timestamp: Timestamp) {
+        let (entries_tx, mut entries_rx) = tokio::sync::mpsc::channel(3 * BATCH_SIZE);
+        let batch: Vec<_> = paths
+            .into_iter()
+            .map(|path| self.register_store_path(path, entries_tx.clone()))
+            .collect();
+        let batch_handle = join_all(batch).map(move |_| timestamp).boxed();
+        let mut last_timestamp = timestamp;
+        let mut unfinished_batches = FuturesOrdered::new();
+        unfinished_batches.push_back(batch_handle);
+        let mut entry_buffer = Vec::with_capacity(BATCH_SIZE);
+        let mut get_new_batches = true;
+        loop {
+            tokio::select! {
+                entry = entries_rx.recv() => {
+                    match entry {
+                        Some(entry) => {
+                            entry_buffer.push(entry);
+                            if entry_buffer.len() >= BATCH_SIZE {
+                                match self.cache.register(&entry_buffer).await {
+                                    Ok(()) => entry_buffer.clear(),
+                                    Err(e) => log::warn!("cannot write entries to sqlite db: {:#}", e),
+                                }
+                            }
+                        },
+                        None => log::warn!("entries_rx closed"),
+                    }
+                }
+                timestamp = unfinished_batches.next() => {
+                    match timestamp {
+                        Some(timestamp) => {
+                            match self.cache.register(&entry_buffer).await {
+                                Ok(()) => {
+                                    entry_buffer.clear();
+                                    self.cache.set_registration_timestamp(timestamp).await.context("writing registration timestamp").or_warn();
+                                    log::debug!("batch {} ok", timestamp);
+                                },
+                                Err(e) => log::warn!("cannot write entries to sqlite db: {:#}", e),
+                            }
+                        },
+                        None => {
+                            // there are no more running batches
+                            self.cache.register(&entry_buffer).await.context("registering entries").or_warn();
+                            entry_buffer.clear();
+                            log::info!("Done registering new store paths");
+                            return;
+                        },
+                    }
+                }
+            }
+            if get_new_batches && self.semaphore.available_permits() > 0 {
+                log::debug!("starting a new batch of store paths to register");
+                let (paths, timestamp) = match get_new_store_path_batch(last_timestamp).await {
+                    Ok(x) => x,
+                    Err(e) => {
+                        log::warn!("cannot read nix store db: {:#}", e);
+                        continue;
+                    }
+                };
+                let batch: Vec<_> = paths
+                    .into_iter()
+                    .map(|path| self.register_store_path(path, entries_tx.clone()))
+                    .collect();
+                if batch.is_empty() {
+                    log::debug!("batch is empty");
+                    get_new_batches = false;
+                } else {
+                    let batch_handle = join_all(batch).map(move |_| timestamp).boxed();
+                    last_timestamp = timestamp;
+                    unfinished_batches.push_back(batch_handle);
                 }
             }
         }
-    });
+    }
 }
 
 async fn get_new_store_path_batch(
@@ -451,9 +526,7 @@ async fn get_new_store_path_batch(
         max_time = time.max(max_time);
     }
     // As we lie about the database being immutable let's not keep the connection open
-    if let Err(e) = db.close().await {
-        log::warn!("failed to close nix db {:#}", e)
-    };
+    db.close().await.context("closing nix db").or_warn();
     if (max_time == 0) ^ paths.is_empty() {
         anyhow::bail!("read paths with 0 registration time...");
     }

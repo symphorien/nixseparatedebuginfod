@@ -9,7 +9,8 @@ use std::fmt::{Debug, Display};
 use std::path::{Path, PathBuf};
 
 use crate::db::Cache;
-use crate::store::{get_file_for_source, realise, SourceLocation};
+use crate::log::ResultExt;
+use crate::store::{get_file_for_source, realise, SourceLocation, StoreWatcher};
 
 #[derive(Debug)]
 struct NotFoundError<E: Display + Debug>(E);
@@ -148,7 +149,13 @@ async fn get_section(_param: web::Path<(String, String)>) -> impl Responder {
 pub async fn run_server() -> anyhow::Result<()> {
     let cache = Cache::open().await.context("opening global cache")?;
     let cache: &'static Cache = Box::leak(Box::new(cache));
-    crate::store::spawn_store_watcher(cache);
+    let watcher = StoreWatcher::new(cache);
+    let watcher = Box::leak(Box::new(watcher));
+    watcher
+        .maybe_register_new_paths()
+        .await
+        .map(|_| ())
+        .or_warn();
     HttpServer::new(move || {
         App::new()
             .app_data(web::Data::new(cache))

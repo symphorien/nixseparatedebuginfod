@@ -173,23 +173,33 @@ impl Cache {
     ///
     /// Only one of the each entry fields is stored for each buildid, if register is called serval times
     /// for a single buildid, only the latest `Some` provided one is retained.
-    pub async fn register(&self, entry: &Entry) -> anyhow::Result<()> {
-        sqlx::query(
-            "insert into builds
-                values ($1, $2, $3, $4)
-                on conflict(buildid) do update set
-                executable = coalesce(excluded.executable, executable),
-                debuginfo = coalesce(excluded.debuginfo, debuginfo),
-                source = coalesce(excluded.source, source)
-                ;",
-        )
-        .bind(&entry.buildid)
-        .bind(&entry.executable)
-        .bind(&entry.debuginfo)
-        .bind(&entry.source)
-        .execute(&self.sqlite)
-        .await
-        .context("inserting build")?;
+    pub async fn register(&self, entries: &[Entry]) -> anyhow::Result<()> {
+        if entries.len() == 0 {
+            return Ok(());
+        }
+        let mut transaction = self.sqlite.begin().await.context("transaction sqlite")?;
+        for entry in entries {
+            sqlx::query(
+                "insert into builds
+                    values ($1, $2, $3, $4)
+                    on conflict(buildid) do update set
+                    executable = coalesce(excluded.executable, executable),
+                    debuginfo = coalesce(excluded.debuginfo, debuginfo),
+                    source = coalesce(excluded.source, source)
+                    ;",
+            )
+            .bind(&entry.buildid)
+            .bind(&entry.executable)
+            .bind(&entry.debuginfo)
+            .bind(&entry.source)
+            .execute(&mut transaction)
+            .await
+            .context("inserting build")?;
+        }
+        transaction
+            .commit()
+            .await
+            .context("committing entry insert")?;
         Ok(())
     }
 

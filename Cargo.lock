@@ -1024,6 +1024,7 @@ dependencies = [
  "compress-tools",
  "directories",
  "env_logger",
+ "futures-util",
  "log",
  "object",
  "once_cell",
