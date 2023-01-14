@@ -31,6 +31,9 @@ pub async fn realise(path: &Path) -> anyhow::Result<()> {
 /// Walks a store path and attempts to register everything that has a buildid in it.
 fn register_store_path(storepath: &Path, sendto: Sender<Entry>) {
     log::info!("examining {}", storepath.display());
+    if storepath.file_name().unwrap_or_default().as_bytes().ends_with(b".drv") {
+        return;
+    }
     if !storepath.is_dir() {
         return;
     }
