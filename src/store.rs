@@ -1,19 +1,15 @@
-use crate::db::{Cache, Entry, Timestamp};
+use crate::db::Entry;
 use crate::log::ResultExt;
 use anyhow::Context;
-use futures_util::{future::join_all, stream::FuturesOrdered, FutureExt, StreamExt};
 use object::read::Object;
 use once_cell::unsync::Lazy;
-use sqlx::{sqlite::SqliteConnectOptions, ConnectOptions, Connection, Row};
-use std::sync::Arc;
 use std::{
     collections::HashSet,
     ffi::{OsStr, OsString},
     os::unix::prelude::{OsStrExt, OsStringExt},
     path::{Path, PathBuf},
 };
-use tokio::sync::{mpsc::Sender, Semaphore};
-use tokio::task::JoinHandle;
+use tokio::sync::mpsc::Sender;
 
 pub async fn realise(path: &Path) -> anyhow::Result<()> {
     use tokio::fs::metadata;
@@ -32,7 +28,7 @@ pub async fn realise(path: &Path) -> anyhow::Result<()> {
 }
 
 /// Walks a store path and attempts to register everything that has a buildid in it.
-fn register_store_path(storepath: &Path, sendto: Sender<Entry>) {
+pub fn index_store_path(storepath: &Path, sendto: Sender<Entry>) {
     log::debug!("examining {}", storepath.display());
     if storepath
         .file_name()
@@ -362,178 +358,6 @@ fn get_buildid(path: &Path) -> anyhow::Result<Option<String>> {
             Ok(Some(buildid))
         }
     }
-}
-
-const BATCH_SIZE: usize = 100;
-const N_WORKERS: usize = 8;
-
-#[derive(Clone)]
-pub struct StoreWatcher {
-    cache: &'static Cache,
-    semaphore: Arc<Semaphore>,
-}
-
-impl StoreWatcher {
-    pub fn new(cache: &'static Cache) -> Self {
-        Self {
-            cache,
-            semaphore: Arc::new(Semaphore::new(N_WORKERS)),
-        }
-    }
-
-    pub async fn maybe_register_new_paths(&self) -> anyhow::Result<Option<JoinHandle<()>>> {
-        let timestamp = self
-            .cache
-            .get_registration_timestamp()
-            .await
-            .context("reading cache timestamp")?;
-        let (paths, timestamp) = get_new_store_path_batch(timestamp)
-            .await
-            .context("looking for new paths registered in the nix store")?;
-        if paths.is_empty() {
-            Ok(None)
-        } else {
-            let cloned_self = self.clone();
-            Ok(Some(tokio::spawn(async move {
-                cloned_self.register_new_paths(paths, timestamp).await
-            })))
-        }
-    }
-
-    async fn register_store_path(&self, path: PathBuf, sendto: Sender<Entry>) {
-        let path2 = path.clone();
-        let permit = self
-            .semaphore
-            .clone()
-            .acquire_owned()
-            .await
-            .expect("closed semaphore");
-        tokio::task::spawn_blocking(move || {
-            register_store_path(path.as_path(), sendto);
-            drop(permit);
-        })
-        .await
-        .with_context(|| format!("examining {} failed", path2.as_path().display()))
-        .or_warn();
-    }
-
-    async fn register_new_paths(&self, paths: Vec<PathBuf>, timestamp: Timestamp) {
-        let (entries_tx, mut entries_rx) = tokio::sync::mpsc::channel(3 * BATCH_SIZE);
-        let batch: Vec<_> = paths
-            .into_iter()
-            .map(|path| self.register_store_path(path, entries_tx.clone()))
-            .collect();
-        let batch_handle = join_all(batch).map(move |_| timestamp).boxed();
-        let mut last_timestamp = timestamp;
-        let mut unfinished_batches = FuturesOrdered::new();
-        unfinished_batches.push_back(batch_handle);
-        let mut entry_buffer = Vec::with_capacity(BATCH_SIZE);
-        let mut get_new_batches = true;
-        loop {
-            tokio::select! {
-                entry = entries_rx.recv() => {
-                    match entry {
-                        Some(entry) => {
-                            entry_buffer.push(entry);
-                            if entry_buffer.len() >= BATCH_SIZE {
-                                match self.cache.register(&entry_buffer).await {
-                                    Ok(()) => entry_buffer.clear(),
-                                    Err(e) => log::warn!("cannot write entries to sqlite db: {:#}", e),
-                                }
-                            }
-                        },
-                        None => log::warn!("entries_rx closed"),
-                    }
-                }
-                timestamp = unfinished_batches.next() => {
-                    match timestamp {
-                        Some(timestamp) => {
-                            match self.cache.register(&entry_buffer).await {
-                                Ok(()) => {
-                                    entry_buffer.clear();
-                                    self.cache.set_registration_timestamp(timestamp).await.context("writing registration timestamp").or_warn();
-                                    log::debug!("batch {} ok", timestamp);
-                                },
-                                Err(e) => log::warn!("cannot write entries to sqlite db: {:#}", e),
-                            }
-                        },
-                        None => {
-                            // there are no more running batches
-                            self.cache.register(&entry_buffer).await.context("registering entries").or_warn();
-                            entry_buffer.clear();
-                            log::info!("Done registering new store paths");
-                            return;
-                        },
-                    }
-                }
-            }
-            if get_new_batches && self.semaphore.available_permits() > 0 {
-                log::debug!("starting a new batch of store paths to register");
-                let (paths, timestamp) = match get_new_store_path_batch(last_timestamp).await {
-                    Ok(x) => x,
-                    Err(e) => {
-                        log::warn!("cannot read nix store db: {:#}", e);
-                        continue;
-                    }
-                };
-                let batch: Vec<_> = paths
-                    .into_iter()
-                    .map(|path| self.register_store_path(path, entries_tx.clone()))
-                    .collect();
-                if batch.is_empty() {
-                    log::debug!("batch is empty");
-                    get_new_batches = false;
-                } else {
-                    let batch_handle = join_all(batch).map(move |_| timestamp).boxed();
-                    last_timestamp = timestamp;
-                    unfinished_batches.push_back(batch_handle);
-                }
-            }
-        }
-    }
-}
-
-async fn get_new_store_path_batch(
-    from_timestamp: Timestamp,
-) -> anyhow::Result<(Vec<PathBuf>, Timestamp)> {
-    // note: this is a hack. One cannot open a sqlite db read only with WAL if the underlying
-    // file is not writable. So we promise sqlite that the db will not be modified with
-    // immutable=1, but it's false.
-    let mut db = SqliteConnectOptions::new()
-        .filename("/nix/var/nix/db/db.sqlite")
-        .immutable(true)
-        .read_only(true)
-        .connect()
-        .await
-        .context("opening nix db")?;
-    let rows =
-        sqlx::query("select path, registrationTime from ValidPaths where registrationTime >= $1 and registrationTime <= (with candidates(registrationTime) as (select registrationTime from ValidPaths where registrationTime >= $1 order by registrationTime asc limit 100) select max(registrationTime) from candidates)")
-            .bind(from_timestamp)
-            .fetch_all(&mut db)
-            .await
-            .context("reading nix db")?;
-    let mut paths = Vec::new();
-    let mut max_time = 0;
-    for row in rows {
-        let path: &str = row.try_get("path").context("parsing path in nix db")?;
-        if !path.starts_with("/nix/store") || path.chars().filter(|&x| x == '/').count() != 3 {
-            anyhow::bail!(
-                "read corrupted stuff from nix db: {}, concurrent write?",
-                path
-            );
-        }
-        paths.push(PathBuf::from(path));
-        let time: Timestamp = row
-            .try_get("registrationTime")
-            .context("parsing timestamp in nix db")?;
-        max_time = time.max(max_time);
-    }
-    // As we lie about the database being immutable let's not keep the connection open
-    db.close().await.context("closing nix db").or_warn();
-    if (max_time == 0) ^ paths.is_empty() {
-        anyhow::bail!("read paths with 0 registration time...");
-    }
-    Ok((paths, max_time + 1))
 }
 
 /// Attempts to find a file that matches the request in an existing source path.

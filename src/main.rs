@@ -1,6 +1,7 @@
 use env_logger::Env;
 
 mod db;
+mod index;
 mod log;
 mod server;
 mod store;

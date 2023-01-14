@@ -7,10 +7,11 @@ use actix_web::{get, web, App, Either, HttpResponse, HttpServer, Responder};
 use anyhow::Context;
 use std::fmt::{Debug, Display};
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use crate::db::Cache;
-use crate::log::ResultExt;
-use crate::store::{get_file_for_source, realise, SourceLocation, StoreWatcher};
+use crate::index::StoreWatcher;
+use crate::store::{get_file_for_source, realise, SourceLocation};
 
 #[derive(Debug)]
 struct NotFoundError<E: Display + Debug>(E);
@@ -40,11 +41,28 @@ async fn unwrap_file<T: AsRef<Path>>(path: anyhow::Result<Option<T>>) -> impl Re
     }
 }
 
+async fn start_indexation_and_wait(watcher: &StoreWatcher, timeout: Duration) {
+    match watcher.maybe_index_new_paths().await {
+        Err(e) => log::warn!("cannot start registration of new store path: {:#}", e),
+        Ok(None) => (),
+        Ok(Some(handle)) => {
+            tokio::select! {
+                _ = tokio::time::sleep(timeout) => (),
+                _ = handle => (),
+            }
+        }
+    }
+}
+
+const INDEXING_TIMEOUT: Duration = Duration::from_secs(1);
+
 #[get("/buildid/{buildid}/debuginfo")]
 async fn get_debuginfo(
     buildid: web::Path<String>,
-    cache: web::Data<&'static Cache>,
+    data: web::Data<(&'static Cache, &'static StoreWatcher)>,
 ) -> impl Responder {
+    let (cache, watcher) = data.as_ref();
+    start_indexation_and_wait(watcher, INDEXING_TIMEOUT).await;
     let res = cache.get_debuginfo(&buildid).await;
     unwrap_file(res).await
 }
@@ -52,8 +70,10 @@ async fn get_debuginfo(
 #[get("/buildid/{buildid}/executable")]
 async fn get_executable(
     buildid: web::Path<String>,
-    cache: web::Data<&'static Cache>,
+    data: web::Data<(&'static Cache, &'static StoreWatcher)>,
 ) -> impl Responder {
+    let (cache, watcher) = data.as_ref();
+    start_indexation_and_wait(watcher, INDEXING_TIMEOUT).await;
     let res = cache.get_executable(&buildid).await;
     unwrap_file(res).await
 }
@@ -116,8 +136,10 @@ async fn uncompress_archive_file_to_http_body(
 #[get("/buildid/{buildid}/source/{path:.*}")]
 async fn get_source(
     param: web::Path<(String, String)>,
-    cache: web::Data<&'static Cache>,
+    data: web::Data<(&'static Cache, &'static StoreWatcher)>,
 ) -> impl Responder {
+    let (cache, watcher) = data.as_ref();
+    start_indexation_and_wait(watcher, INDEXING_TIMEOUT).await;
     let path: &str = &param.1;
     let request = PathBuf::from(path);
     let sourcefile = fetch_and_get_source(param.0.to_owned(), request, &cache).await;
@@ -150,15 +172,11 @@ pub async fn run_server() -> anyhow::Result<()> {
     let cache = Cache::open().await.context("opening global cache")?;
     let cache: &'static Cache = Box::leak(Box::new(cache));
     let watcher = StoreWatcher::new(cache);
-    let watcher = Box::leak(Box::new(watcher));
-    watcher
-        .maybe_register_new_paths()
-        .await
-        .map(|_| ())
-        .or_warn();
+    let watcher: &'static StoreWatcher = Box::leak(Box::new(watcher));
+    watcher.watch_store();
     HttpServer::new(move || {
         App::new()
-            .app_data(web::Data::new(cache))
+            .app_data(web::Data::new((cache, watcher)))
             .wrap(Logger::default())
             .service(get_debuginfo)
             .service(get_executable)
