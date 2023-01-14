@@ -365,7 +365,9 @@ fn get_buildid(path: &Path) -> anyhow::Result<Option<String>> {
 }
 
 const BATCH_SIZE: usize = 100;
-const N_WORKERS: usize = 4;
+const N_WORKERS: usize = 8;
+
+#[derive(Clone)]
 pub struct StoreWatcher {
     cache: &'static Cache,
     semaphore: Arc<Semaphore>,
@@ -379,7 +381,7 @@ impl StoreWatcher {
         }
     }
 
-    pub async fn maybe_register_new_paths(&'static self) -> anyhow::Result<Option<JoinHandle<()>>> {
+    pub async fn maybe_register_new_paths(&self) -> anyhow::Result<Option<JoinHandle<()>>> {
         let timestamp = self
             .cache
             .get_registration_timestamp()
@@ -391,9 +393,10 @@ impl StoreWatcher {
         if paths.is_empty() {
             Ok(None)
         } else {
-            Ok(Some(tokio::spawn(
-                self.register_new_paths(paths, timestamp),
-            )))
+            let cloned_self = self.clone();
+            Ok(Some(tokio::spawn(async move {
+                cloned_self.register_new_paths(paths, timestamp).await
+            })))
         }
     }
 
