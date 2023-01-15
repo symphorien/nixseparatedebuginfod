@@ -2,8 +2,8 @@ use anyhow::{bail, Context};
 use directories::ProjectDirs;
 use sqlx::{sqlite::SqlitePool, Row};
 
-/// Timestamps stored in the nix db
-pub type Timestamp = u32;
+/// Store path id
+pub type Id = u32;
 
 /// An entry stored in the cache.
 ///
@@ -25,7 +25,7 @@ pub struct Cache {
     sqlite: SqlitePool,
 }
 /// Version of the schema. Opening a db with another version will fail.
-const SCHEMA_VERSION: u32 = 1;
+const SCHEMA_VERSION: u32 = 2;
 /// The schema of the sqlite db backing `Cache`.
 const SCHEMA: &'static str = include_str!("./schema.sql");
 
@@ -59,10 +59,14 @@ async fn populate_pool(pool: &SqlitePool) -> anyhow::Result<()> {
         .execute(&mut transaction)
         .await
         .context("setting schema version on cache db")?;
-    sqlx::query("insert into timestamps values (0, 0);")
+    sqlx::query("insert into gc values (0);")
         .execute(&mut transaction)
         .await
         .context("setting schema default timestamps on cache db")?;
+    sqlx::query("insert into id values (0);")
+        .execute(&mut transaction)
+        .await
+        .context("setting schema default next id on cache db")?;
     transaction.commit().await?;
     Ok(())
 }
@@ -203,22 +207,24 @@ impl Cache {
         Ok(())
     }
 
-    pub async fn set_registration_timestamp(&self, timestamp: Timestamp) -> anyhow::Result<()> {
-        sqlx::query("update timestamps set storepath = max(storepath, $1);")
-            .bind(timestamp)
+    /// Store the next store path id to read from the nix db
+    pub async fn set_next_id(&self, id: Id) -> anyhow::Result<()> {
+        sqlx::query("update id set next = max(next, $1);")
+            .bind(id)
             .execute(&self.sqlite)
             .await
-            .context("advancing registration timestamp in cache db")?;
+            .context("advancing next registered id in cache db")?;
         Ok(())
     }
 
-    pub async fn get_registration_timestamp(&self) -> anyhow::Result<Timestamp> {
-        let row = sqlx::query("select storepath from timestamps")
+    /// get the next store path id to read from the nix db
+    pub async fn get_next_id(&self) -> anyhow::Result<Id> {
+        let row = sqlx::query("select next from id")
             .fetch_one(&self.sqlite)
             .await
-            .context("reading registration timestamp in cache db")?;
+            .context("reading next registered id in cache db")?;
         Ok(row
-            .try_get("storepath")
-            .context("parsing registration timestamp from cache db")?)
+            .try_get("next")
+            .context("parsing next registered id from cache db")?)
     }
 }

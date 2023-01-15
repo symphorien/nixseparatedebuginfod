@@ -1,4 +1,4 @@
-use crate::db::{Cache, Entry, Timestamp};
+use crate::db::{Cache, Entry, Id};
 use crate::log::ResultExt;
 use crate::store::index_store_path;
 use anyhow::Context;
@@ -42,12 +42,12 @@ impl StoreWatcher {
     /// If there are some, starts a future to index them, and returns a JoinHandle to
     /// optionnally wait for completion of the indexation.
     pub async fn maybe_index_new_paths(&self) -> anyhow::Result<Option<JoinHandle<()>>> {
-        let timestamp = self
+        let id = self
             .cache
-            .get_registration_timestamp()
+            .get_next_id()
             .await
-            .context("reading cache timestamp")?;
-        let (paths, timestamp) = get_new_store_path_batch(timestamp)
+            .context("reading cache next id")?;
+        let (paths, id) = get_new_store_path_batch(id)
             .await
             .context("looking for new paths registered in the nix store")?;
         if paths.is_empty() {
@@ -56,7 +56,7 @@ impl StoreWatcher {
             let cloned_self = self.clone();
             Ok(Some(tokio::spawn(async move {
                 let guard = cloned_self.working.lock().await;
-                cloned_self.index_new_paths(paths, timestamp).await;
+                cloned_self.index_new_paths(paths, id).await;
                 drop(guard);
             })))
         }
@@ -83,14 +83,14 @@ impl StoreWatcher {
     /// Indexes all new store paths in the store by batches.
     ///
     /// Arguments are the first batch, as returned by [get_new_store_path_batch]
-    async fn index_new_paths(&self, paths: Vec<PathBuf>, timestamp: Timestamp) {
+    async fn index_new_paths(&self, paths: Vec<PathBuf>, id: Id) {
         let (entries_tx, mut entries_rx) = tokio::sync::mpsc::channel(3 * BATCH_SIZE);
         let batch: Vec<_> = paths
             .into_iter()
             .map(|path| self.index_store_path(path, entries_tx.clone()))
             .collect();
-        let batch_handle = join_all(batch).map(move |_| timestamp).boxed();
-        let mut last_timestamp = timestamp;
+        let batch_handle = join_all(batch).map(move |_| id).boxed();
+        let mut max_id = id;
         let mut unfinished_batches = FuturesOrdered::new();
         unfinished_batches.push_back(batch_handle);
         let mut entry_buffer = Vec::with_capacity(BATCH_SIZE);
@@ -111,14 +111,14 @@ impl StoreWatcher {
                         None => log::warn!("entries_rx closed"),
                     }
                 }
-                timestamp = unfinished_batches.next() => {
-                    match timestamp {
-                        Some(timestamp) => {
+                id = unfinished_batches.next() => {
+                    match id {
+                        Some(id) => {
                             match self.cache.register(&entry_buffer).await {
                                 Ok(()) => {
                                     entry_buffer.clear();
-                                    self.cache.set_registration_timestamp(timestamp).await.context("writing registration timestamp").or_warn();
-                                    log::debug!("batch {} ok", timestamp);
+                                    self.cache.set_next_id(id).await.context("writing next id").or_warn();
+                                    log::debug!("batch {} ok", id);
                                 },
                                 Err(e) => log::warn!("cannot write entries to sqlite db: {:#}", e),
                             }
@@ -135,7 +135,7 @@ impl StoreWatcher {
             }
             if get_new_batches && self.semaphore.available_permits() > 0 {
                 log::debug!("starting a new batch of store paths to index");
-                let (paths, timestamp) = match get_new_store_path_batch(last_timestamp).await {
+                let (paths, id) = match get_new_store_path_batch(max_id).await {
                     Ok(x) => x,
                     Err(e) => {
                         log::warn!("cannot read nix store db: {:#}", e);
@@ -150,8 +150,8 @@ impl StoreWatcher {
                     log::debug!("batch is empty");
                     get_new_batches = false;
                 } else {
-                    let batch_handle = join_all(batch).map(move |_| timestamp).boxed();
-                    last_timestamp = timestamp;
+                    let batch_handle = join_all(batch).map(move |_| id).boxed();
+                    max_id = id;
                     unfinished_batches.push_back(batch_handle);
                 }
             }
@@ -179,12 +179,12 @@ impl StoreWatcher {
     }
 }
 
-/// Reads the nix db to find new store paths register from this timestamp on
+/// Reads the nix db to find new store paths.
 ///
-/// Returns the timestamp you should call this function with for the "next" paths.
-async fn get_new_store_path_batch(
-    from_timestamp: Timestamp,
-) -> anyhow::Result<(Vec<PathBuf>, Timestamp)> {
+/// New store paths are paths of id greater or equal to `from_id`.
+///
+/// Returns the id you should call this function with for the "next" paths.
+async fn get_new_store_path_batch(from_id: Id) -> anyhow::Result<(Vec<PathBuf>, Id)> {
     // note: this is a hack. One cannot open a sqlite db read only with WAL if the underlying
     // file is not writable. So we promise sqlite that the db will not be modified with
     // immutable=1, but it's false.
@@ -196,13 +196,14 @@ async fn get_new_store_path_batch(
         .await
         .context("opening nix db")?;
     let rows =
-        sqlx::query("select path, registrationTime from ValidPaths where registrationTime >= $1 and registrationTime <= (with candidates(registrationTime) as (select registrationTime from ValidPaths where registrationTime >= $1 order by registrationTime asc limit 100) select max(registrationTime) from candidates)")
-            .bind(from_timestamp)
+        sqlx::query("select path, id from ValidPaths where id >= $1 order by id asc limit $2")
+            .bind(from_id)
+            .bind(BATCH_SIZE as u32)
             .fetch_all(&mut db)
             .await
             .context("reading nix db")?;
     let mut paths = Vec::new();
-    let mut max_time = 0;
+    let mut max_id = 0;
     for row in rows {
         let path: &str = row.try_get("path").context("parsing path in nix db")?;
         if !path.starts_with("/nix/store") || path.chars().filter(|&x| x == '/').count() != 3 {
@@ -212,15 +213,13 @@ async fn get_new_store_path_batch(
             );
         }
         paths.push(PathBuf::from(path));
-        let time: Timestamp = row
-            .try_get("registrationTime")
-            .context("parsing timestamp in nix db")?;
-        max_time = time.max(max_time);
+        let id: Id = row.try_get("id").context("parsing id in nix db")?;
+        max_id = id.max(max_id);
     }
     // As we lie about the database being immutable let's not keep the connection open
     db.close().await.context("closing nix db").or_warn();
-    if (max_time == 0) ^ paths.is_empty() {
-        anyhow::bail!("read paths with 0 registration time...");
+    if (max_id == 0) ^ paths.is_empty() {
+        anyhow::bail!("read paths with id == 0...");
     }
-    Ok((paths, max_time + 1))
+    Ok((paths, max_id + 1))
 }
