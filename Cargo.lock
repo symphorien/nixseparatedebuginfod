@@ -1028,6 +1028,7 @@ dependencies = [
  "log",
  "object",
  "once_cell",
+ "sha2",
  "sqlx",
  "threadpool",
  "tokio",

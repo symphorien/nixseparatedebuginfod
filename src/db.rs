@@ -1,5 +1,6 @@
 use anyhow::{bail, Context};
 use directories::ProjectDirs;
+use sha2::Digest;
 use sqlx::{sqlite::SqlitePool, Row};
 
 /// Store path id
@@ -24,10 +25,15 @@ pub struct Cache {
     /// A connection to a backing sqlite db.
     sqlite: SqlitePool,
 }
-/// Version of the schema. Opening a db with another version will fail.
-const SCHEMA_VERSION: u32 = 2;
 /// The schema of the sqlite db backing `Cache`.
 const SCHEMA: &'static str = include_str!("./schema.sql");
+
+fn get_schema_version() -> u32 {
+    let mut hasher = sha2::Sha256::new();
+    hasher.update(SCHEMA.as_bytes());
+    let hash = hasher.finalize();
+    u32::from_le_bytes(hash[0..4].try_into().unwrap())
+}
 
 /// Checks wether this db has the right schema version
 async fn pool_is_valid(pool: &SqlitePool) -> anyhow::Result<()> {
@@ -38,7 +44,7 @@ async fn pool_is_valid(pool: &SqlitePool) -> anyhow::Result<()> {
     let version: u32 = row
         .try_get("version")
         .context("reading schema version first row")?;
-    if version != SCHEMA_VERSION {
+    if version != get_schema_version() {
         bail!("incompatible cache version {}", version);
     }
     Ok(())
@@ -55,7 +61,7 @@ async fn populate_pool(pool: &SqlitePool) -> anyhow::Result<()> {
         .await
         .context("setting schema on cache db")?;
     sqlx::query("insert into version values ($1);")
-        .bind(SCHEMA_VERSION)
+        .bind(get_schema_version())
         .execute(&mut transaction)
         .await
         .context("setting schema version on cache db")?;
