@@ -1,43 +1,39 @@
-use actix_files::NamedFile;
-use actix_web::body::{BodyStream, MessageBody};
-use actix_web::error::ResponseError;
-use actix_web::http::StatusCode;
-use actix_web::middleware::Logger;
-use actix_web::{get, web, App, Either, HttpResponse, HttpServer, Responder};
 use anyhow::Context;
-use std::fmt::{Debug, Display};
-use std::path::{Path, PathBuf};
+use axum::body::StreamBody;
+use axum::extract::{Path, State};
+use axum::http::StatusCode;
+use axum::response::IntoResponse;
+use axum::{routing::get, Router};
+use std::path::PathBuf;
 use std::time::Duration;
+use tokio_util::io::ReaderStream;
 
 use crate::db::Cache;
 use crate::index::StoreWatcher;
 use crate::store::{get_file_for_source, realise, SourceLocation};
 
-#[derive(Debug)]
-struct NotFoundError<E: Display + Debug>(E);
-impl<E: Display + Debug> ResponseError for NotFoundError<E> {
-    fn status_code(&self) -> StatusCode {
-        log::info!("returning 404 because of {}", &self);
-        StatusCode::NOT_FOUND
-    }
-}
-impl<E: Display + Debug> Display for NotFoundError<E> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:#}", &self.0)
-    }
-}
-
-async fn unwrap_file<T: AsRef<Path>>(path: anyhow::Result<Option<T>>) -> impl Responder {
+async fn unwrap_file<T: AsRef<std::path::Path>>(
+    path: anyhow::Result<Option<T>>,
+) -> impl IntoResponse {
     match path {
         Ok(Some(p)) => {
             let exists = realise(p.as_ref()).await;
             match exists {
-                Ok(()) => Ok(NamedFile::open(p.as_ref())),
-                Err(e) => Err(NotFoundError(e)),
+                Ok(()) => match tokio::fs::File::open(p.as_ref()).await {
+                    Err(e) => Err((StatusCode::NOT_FOUND, e.to_string())),
+                    Ok(file) => {
+                        // convert the `AsyncRead` into a `Stream`
+                        let stream = ReaderStream::new(file);
+                        // convert the `Stream` into an `axum::body::HttpBody`
+                        let body = StreamBody::new(stream);
+                        Ok(body)
+                    }
+                },
+                Err(e) => Err((StatusCode::NOT_FOUND, e.to_string())),
             }
         }
-        Ok(None) => Err(NotFoundError(anyhow::anyhow!("not found"))),
-        Err(e) => Err(NotFoundError(e.into())),
+        Ok(None) => Err((StatusCode::NOT_FOUND, "not found".to_string())),
+        Err(e) => Err((StatusCode::NOT_FOUND, e.to_string())),
     }
 }
 
@@ -56,23 +52,19 @@ async fn start_indexation_and_wait(watcher: &StoreWatcher, timeout: Duration) {
 
 const INDEXING_TIMEOUT: Duration = Duration::from_secs(1);
 
-#[get("/buildid/{buildid}/debuginfo")]
 async fn get_debuginfo(
-    buildid: web::Path<String>,
-    data: web::Data<(&'static Cache, &'static StoreWatcher)>,
-) -> impl Responder {
-    let (cache, watcher) = data.as_ref();
+    Path(buildid): Path<String>,
+    State((cache, watcher)): State<(&'static Cache, &'static StoreWatcher)>,
+) -> impl IntoResponse {
     start_indexation_and_wait(watcher, INDEXING_TIMEOUT).await;
     let res = cache.get_debuginfo(&buildid).await;
     unwrap_file(res).await
 }
 
-#[get("/buildid/{buildid}/executable")]
 async fn get_executable(
-    buildid: web::Path<String>,
-    data: web::Data<(&'static Cache, &'static StoreWatcher)>,
-) -> impl Responder {
-    let (cache, watcher) = data.as_ref();
+    Path(buildid): Path<String>,
+    State((cache, watcher)): State<(&'static Cache, &'static StoreWatcher)>,
+) -> impl IntoResponse {
     start_indexation_and_wait(watcher, INDEXING_TIMEOUT).await;
     let res = cache.get_executable(&buildid).await;
     unwrap_file(res).await
@@ -104,7 +96,7 @@ async fn fetch_and_get_source(
 async fn uncompress_archive_file_to_http_body(
     archive: PathBuf,
     member: PathBuf,
-) -> anyhow::Result<impl MessageBody> {
+) -> anyhow::Result<impl IntoResponse> {
     let archive_file = tokio::fs::File::open(&archive)
         .await
         .with_context(|| format!("opening source archive {}", archive.display()))?;
@@ -131,41 +123,43 @@ async fn uncompress_archive_file_to_http_body(
         }
     };
     tokio::spawn(decompressor_future);
-    Ok(BodyStream::new(streamreader))
+    Ok(StreamBody::new(streamreader))
 }
-#[get("/buildid/{buildid}/source/{path:.*}")]
 async fn get_source(
-    param: web::Path<(String, String)>,
-    data: web::Data<(&'static Cache, &'static StoreWatcher)>,
-) -> impl Responder {
-    let (cache, watcher) = data.as_ref();
+    Path(param): Path<(String, String)>,
+    State((cache, watcher)): State<(&'static Cache, &'static StoreWatcher)>,
+) -> impl IntoResponse {
     start_indexation_and_wait(watcher, INDEXING_TIMEOUT).await;
     let path: &str = &param.1;
     let request = PathBuf::from(path);
     let sourcefile = fetch_and_get_source(param.0.to_owned(), request, &cache).await;
     match sourcefile {
-        Ok(Some(SourceLocation::File(path))) => match NamedFile::open(&path) {
-            Err(e) => Either::Left(HttpResponse::NotFound().body(format!(
-                "opening {} {:#}",
-                path.display(),
-                e
-            ))),
-            Ok(body) => Either::Right(Either::Left(body)),
+        Ok(Some(SourceLocation::File(path))) => match tokio::fs::File::open(&path).await {
+            Err(e) => Err((
+                StatusCode::NOT_FOUND,
+                format!("opening {}: {:#}", path.display(), e),
+            )),
+            Ok(file) => {
+                // convert the `AsyncRead` into a `Stream`
+                let stream = ReaderStream::new(file);
+                // convert the `Stream` into an `axum::body::HttpBody`
+                let body = StreamBody::new(stream);
+                Ok(body.into_response())
+            }
         },
         Ok(Some(SourceLocation::Archive { archive, member })) => {
             match uncompress_archive_file_to_http_body(archive, member).await {
-                Err(e) => Either::Left(HttpResponse::NotFound().body(format!("{:#}", e))),
-                Ok(body) => Either::Right(Either::Right(HttpResponse::Ok().body(body))),
+                Ok(r) => Ok(r.into_response()),
+                Err(e) => Err((StatusCode::NOT_FOUND, e.to_string())),
             }
         }
-        Ok(None) => Either::Left(HttpResponse::NotFound().body("not found")),
-        Err(e) => Either::Left(HttpResponse::NotFound().body(format!("{:#}", e))),
+        Ok(None) => Err((StatusCode::NOT_FOUND, "not found".to_string())),
+        Err(e) => Err((StatusCode::NOT_FOUND, e.to_string())),
     }
 }
 
-#[get("/buildid/{buildid}/section/{section}")]
-async fn get_section(_param: web::Path<(String, String)>) -> impl Responder {
-    HttpResponse::NotImplemented().finish()
+async fn get_section(Path(_param): Path<(String, String)>) -> impl IntoResponse {
+    StatusCode::NOT_IMPLEMENTED
 }
 
 pub async fn run_server() -> anyhow::Result<()> {
@@ -174,17 +168,14 @@ pub async fn run_server() -> anyhow::Result<()> {
     let watcher = StoreWatcher::new(cache);
     let watcher: &'static StoreWatcher = Box::leak(Box::new(watcher));
     watcher.watch_store();
-    HttpServer::new(move || {
-        App::new()
-            .app_data(web::Data::new((cache, watcher)))
-            .wrap(Logger::default())
-            .service(get_debuginfo)
-            .service(get_executable)
-            .service(get_source)
-            .service(get_section)
-    })
-    .bind(("127.0.0.1", 8080))?
-    .run()
-    .await?;
+    let app = Router::new()
+        .route("/buildid/:buildid/section/:section", get(get_section))
+        .route("/buildid/:buildid/source/*path", get(get_source))
+        .route("/buildid/:buildid/executable", get(get_executable))
+        .route("/buildid/:buildid/debuginfo", get(get_debuginfo))
+        .with_state((cache, watcher));
+    axum::Server::bind(&"127.0.0.1:8080".parse().unwrap())
+        .serve(app.into_make_service())
+        .await?;
     Ok(())
 }
