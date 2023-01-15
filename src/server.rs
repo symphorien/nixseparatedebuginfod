@@ -11,6 +11,7 @@ use tokio_util::io::ReaderStream;
 use crate::db::Cache;
 use crate::index::StoreWatcher;
 use crate::store::{get_file_for_source, realise, SourceLocation};
+use crate::Options;
 
 async fn unwrap_file<T: AsRef<std::path::Path>>(
     path: anyhow::Result<Option<T>>,
@@ -162,20 +163,27 @@ async fn get_section(Path(_param): Path<(String, String)>) -> impl IntoResponse 
     StatusCode::NOT_IMPLEMENTED
 }
 
-pub async fn run_server() -> anyhow::Result<()> {
+pub async fn run_server(args: Options) -> anyhow::Result<()> {
     let cache = Cache::open().await.context("opening global cache")?;
     let cache: &'static Cache = Box::leak(Box::new(cache));
     let watcher = StoreWatcher::new(cache);
     let watcher: &'static StoreWatcher = Box::leak(Box::new(watcher));
-    watcher.watch_store();
-    let app = Router::new()
-        .route("/buildid/:buildid/section/:section", get(get_section))
-        .route("/buildid/:buildid/source/*path", get(get_source))
-        .route("/buildid/:buildid/executable", get(get_executable))
-        .route("/buildid/:buildid/debuginfo", get(get_debuginfo))
-        .with_state((cache, watcher));
-    axum::Server::bind(&"127.0.0.1:8080".parse().unwrap())
-        .serve(app.into_make_service())
-        .await?;
+    if args.index_only {
+        match watcher.maybe_index_new_paths().await? {
+            None => (),
+            Some(handle) => handle.await?,
+        }
+    } else {
+        watcher.watch_store();
+        let app = Router::new()
+            .route("/buildid/:buildid/section/:section", get(get_section))
+            .route("/buildid/:buildid/source/*path", get(get_source))
+            .route("/buildid/:buildid/executable", get(get_executable))
+            .route("/buildid/:buildid/debuginfo", get(get_debuginfo))
+            .with_state((cache, watcher));
+        axum::Server::bind(&args.listen_address)
+            .serve(app.into_make_service())
+            .await?;
+    }
     Ok(())
 }

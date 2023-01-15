@@ -22,3 +22,4 @@ tokio-util = { version = "0.7.4", features = ["io-util"] }
 walkdir = "2.3.2"
 sha2 = "0.10.6"
 axum = "0.6.2"
+clap = { version = "4.1.1", features = [ "derive" ] }
