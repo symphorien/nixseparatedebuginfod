@@ -42,12 +42,12 @@ impl StoreWatcher {
     /// If there are some, starts a future to index them, and returns a JoinHandle to
     /// optionnally wait for completion of the indexation.
     pub async fn maybe_index_new_paths(&self) -> anyhow::Result<Option<JoinHandle<()>>> {
-        let id = self
+        let start = self
             .cache
             .get_next_id()
             .await
             .context("reading cache next id")?;
-        let (paths, id) = get_new_store_path_batch(id)
+        let (paths, end) = get_new_store_path_batch(start)
             .await
             .context("looking for new paths registered in the nix store")?;
         if paths.is_empty() {
@@ -56,7 +56,24 @@ impl StoreWatcher {
             let cloned_self = self.clone();
             Ok(Some(tokio::spawn(async move {
                 let guard = cloned_self.working.lock().await;
-                cloned_self.index_new_paths(paths, id).await;
+                // it's possible that we had to wait a lot for this lock and that more indexation
+                // was done in between.
+                match cloned_self.cache.get_next_id().await {
+                    Err(e) => tracing::warn!(
+                        "reading next id from sqlite db: {:#}, dropping indexation request",
+                        e
+                    ),
+                    Ok(new_start) => {
+                        if new_start == start {
+                            cloned_self.index_new_paths(paths, end).await;
+                        } else {
+                            // indexation was already in progress when we started waiting for the
+                            // lock. Now that we got the lock, indexation is complete and there is
+                            // nothing to do.
+                            tracing::info!("indexation already complete");
+                        }
+                    }
+                }
                 drop(guard);
             })))
         }
@@ -84,6 +101,21 @@ impl StoreWatcher {
     ///
     /// Arguments are the first batch, as returned by [get_new_store_path_batch]
     async fn index_new_paths(&self, paths: Vec<PathBuf>, id: Id) {
+        if paths.is_empty() {
+            return;
+        };
+        tracing::info!("Starting indexation of new store paths");
+        let start = self.cache.get_next_id().await.unwrap_or(0);
+        if start >= id {
+            tracing::error!(
+                size = paths.len(),
+                end = id,
+                start = start,
+                "impossible batch"
+            );
+            return;
+        }
+        tracing::debug!(size = paths.len(), end = id, start = start, "First batch");
         let (entries_tx, mut entries_rx) = tokio::sync::mpsc::channel(3 * BATCH_SIZE);
         let batch: Vec<_> = paths
             .into_iter()
@@ -118,7 +150,7 @@ impl StoreWatcher {
                                 Ok(()) => {
                                     entry_buffer.clear();
                                     self.cache.set_next_id(id).await.context("writing next id").or_warn();
-                                    tracing::debug!("batch {} ok", id);
+                                    tracing::debug!("batch {} complete", id);
                                 },
                                 Err(e) => tracing::warn!("cannot write entries to sqlite db: {:#}", e),
                             }
@@ -134,7 +166,7 @@ impl StoreWatcher {
                 }
             }
             if get_new_batches && self.semaphore.available_permits() > 0 {
-                tracing::debug!("starting a new batch of store paths to index");
+                tracing::debug!("considering starting a new batch of store paths to index");
                 let (paths, id) = match get_new_store_path_batch(max_id).await {
                     Ok(x) => x,
                     Err(e) => {
@@ -150,6 +182,12 @@ impl StoreWatcher {
                     tracing::debug!("batch is empty");
                     get_new_batches = false;
                 } else {
+                    tracing::debug!(
+                        size = batch.len(),
+                        start = max_id,
+                        end = id,
+                        "Indexing new batch of paths"
+                    );
                     let batch_handle = join_all(batch).map(move |_| id).boxed();
                     max_id = id;
                     unfinished_batches.push_back(batch_handle);
