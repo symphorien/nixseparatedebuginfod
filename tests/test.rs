@@ -2,7 +2,7 @@ use assert_cmd::prelude::*;
 use std::path::Path;
 use std::process::Command;
 use std::{os::unix::process::CommandExt, path::PathBuf};
-use tempfile::{tempdir, TempDir};
+use tempfile::TempDir;
 
 fn nixseparatedebuginfod(t: &TempDir) -> Command {
     let mut cmd = Command::cargo_bin("nixseparatedebuginfod").unwrap();
@@ -40,13 +40,13 @@ fn file_in(t: &TempDir, name: &str) -> PathBuf {
 // Runs gdb on this exe with these commands and configured to use debuginfod on this port
 //
 //  Returns its output
-fn gdb(exe: &Path, port: u16, commands: &str) -> String {
+fn gdb(t: &TempDir, exe: &Path, port: u16, commands: &str) -> String {
     let mut cmd = Command::new("gdb");
-    let t = tempdir().unwrap();
     cmd.env("HOME", t.path());
     cmd.env("XDG_CACHE_HOME", t.path());
     cmd.env("NIX_DEBUG_INFO_DIRS", "");
     cmd.env("DEBUGINFOD_URLS", format!("http://127.0.0.1:{port}"));
+    cmd.env("DEBUGINFOD_VERBOSE", "1");
     let tmpfile = file_in(&t, "gdb");
     std::fs::write(&tmpfile, commands).unwrap();
     cmd.arg(exe);
@@ -90,18 +90,25 @@ fn nix_build(attr: &str, output: &Path) {
 fn test() {
     let t = tempfile::tempdir().unwrap();
 
-    populate_cache(&t);
+    // gnumake has source in tar.gz files
+    let output = file_in(&t, "gnumake");
+    nix_build("gnumake", &output);
 
     let (port, mut server) = spawn_server(&t);
-
-    // gnumake has source in tar.gz files
-    let output: PathBuf = file_in(&t, "gnumake");
-    nix_build("gnumake", &output);
 
     let mut exe = output;
     exe.push("bin");
     exe.push("make");
-    let out = gdb(&exe, port, "start\nl\n");
+    // this is before indexation finished, and should not populate the client cache
+    gdb(&t, &exe, port, "start\nl\n");
+
+    server.kill().unwrap();
+
+    populate_cache(&t);
+
+    let (port, mut server) = spawn_server(&t);
+
+    let out = gdb(&t, &exe, port, "start\nl\n");
     assert!(dbg!(out).contains("1051\tmain (int argc, char **argv)"));
 
     // nix has source in flat files
@@ -111,7 +118,7 @@ fn test() {
     let mut exe = output;
     exe.push("bin");
     exe.push("nix");
-    let out = gdb(&exe, port, "start\nl\n");
+    let out = gdb(&t, &exe, port, "start\nl\n");
     assert!(dbg!(out).contains("400	int main(int argc, char * * argv)"));
 
     server.kill().unwrap();

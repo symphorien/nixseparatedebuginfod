@@ -13,8 +13,15 @@ use crate::index::StoreWatcher;
 use crate::store::{get_file_for_source, realise, SourceLocation};
 use crate::Options;
 
+/// The only status code in the client code of debuginfod in elfutils that prevents
+/// creation of a negative cache entry.
+///
+/// 503 Not Available also works, but only for the section request
+const NON_CACHING_ERROR_STATUS: StatusCode = StatusCode::NOT_ACCEPTABLE;
+
 async fn unwrap_file<T: AsRef<std::path::Path>>(
     path: anyhow::Result<Option<T>>,
+    ready: bool,
 ) -> impl IntoResponse {
     match path {
         Ok(Some(p)) => {
@@ -33,19 +40,32 @@ async fn unwrap_file<T: AsRef<std::path::Path>>(
                 Err(e) => Err((StatusCode::NOT_FOUND, e.to_string())),
             }
         }
-        Ok(None) => Err((StatusCode::NOT_FOUND, "not found".to_string())),
+        Ok(None) => Err((
+            if ready {
+                StatusCode::NOT_FOUND
+            } else {
+                NON_CACHING_ERROR_STATUS
+            },
+            "not found in cache".to_string(),
+        )),
         Err(e) => Err((StatusCode::NOT_FOUND, e.to_string())),
     }
 }
 
-async fn start_indexation_and_wait(watcher: &StoreWatcher, timeout: Duration) {
+/// Start indexation, and wait for it to complete until timeout.
+///
+/// Returns wether indexation is complete.
+async fn start_indexation_and_wait(watcher: &StoreWatcher, timeout: Duration) -> bool {
     match watcher.maybe_index_new_paths().await {
-        Err(e) => log::warn!("cannot start registration of new store path: {:#}", e),
-        Ok(None) => (),
+        Err(e) => {
+            log::warn!("cannot start registration of new store path: {:#}", e);
+            false
+        }
+        Ok(None) => true,
         Ok(Some(handle)) => {
             tokio::select! {
-                _ = tokio::time::sleep(timeout) => (),
-                _ = handle => (),
+                _ = tokio::time::sleep(timeout) => false,
+                _ = handle => true,
             }
         }
     }
@@ -57,18 +77,18 @@ async fn get_debuginfo(
     Path(buildid): Path<String>,
     State((cache, watcher)): State<(&'static Cache, &'static StoreWatcher)>,
 ) -> impl IntoResponse {
-    start_indexation_and_wait(watcher, INDEXING_TIMEOUT).await;
+    let ready = start_indexation_and_wait(watcher, INDEXING_TIMEOUT).await;
     let res = cache.get_debuginfo(&buildid).await;
-    unwrap_file(res).await
+    unwrap_file(res, ready).await
 }
 
 async fn get_executable(
     Path(buildid): Path<String>,
     State((cache, watcher)): State<(&'static Cache, &'static StoreWatcher)>,
 ) -> impl IntoResponse {
-    start_indexation_and_wait(watcher, INDEXING_TIMEOUT).await;
+    let ready = start_indexation_and_wait(watcher, INDEXING_TIMEOUT).await;
     let res = cache.get_executable(&buildid).await;
-    unwrap_file(res).await
+    unwrap_file(res, ready).await
 }
 
 async fn fetch_and_get_source(
@@ -130,7 +150,7 @@ async fn get_source(
     Path(param): Path<(String, String)>,
     State((cache, watcher)): State<(&'static Cache, &'static StoreWatcher)>,
 ) -> impl IntoResponse {
-    start_indexation_and_wait(watcher, INDEXING_TIMEOUT).await;
+    let ready = start_indexation_and_wait(watcher, INDEXING_TIMEOUT).await;
     let path: &str = &param.1;
     let request = PathBuf::from(path);
     let sourcefile = fetch_and_get_source(param.0.to_owned(), request, &cache).await;
@@ -154,7 +174,14 @@ async fn get_source(
                 Err(e) => Err((StatusCode::NOT_FOUND, e.to_string())),
             }
         }
-        Ok(None) => Err((StatusCode::NOT_FOUND, "not found".to_string())),
+        Ok(None) => Err((
+            if ready {
+                StatusCode::NOT_FOUND
+            } else {
+                NON_CACHING_ERROR_STATUS
+            },
+            "not found in cache".to_string(),
+        )),
         Err(e) => Err((StatusCode::NOT_FOUND, e.to_string())),
     }
 }
