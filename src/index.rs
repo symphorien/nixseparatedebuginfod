@@ -104,11 +104,11 @@ impl StoreWatcher {
                             if entry_buffer.len() >= BATCH_SIZE {
                                 match self.cache.register(&entry_buffer).await {
                                     Ok(()) => entry_buffer.clear(),
-                                    Err(e) => log::warn!("cannot write entries to sqlite db: {:#}", e),
+                                    Err(e) => tracing::warn!("cannot write entries to sqlite db: {:#}", e),
                                 }
                             }
                         },
-                        None => log::warn!("entries_rx closed"),
+                        None => tracing::warn!("entries_rx closed"),
                     }
                 }
                 id = unfinished_batches.next() => {
@@ -118,27 +118,27 @@ impl StoreWatcher {
                                 Ok(()) => {
                                     entry_buffer.clear();
                                     self.cache.set_next_id(id).await.context("writing next id").or_warn();
-                                    log::debug!("batch {} ok", id);
+                                    tracing::debug!("batch {} ok", id);
                                 },
-                                Err(e) => log::warn!("cannot write entries to sqlite db: {:#}", e),
+                                Err(e) => tracing::warn!("cannot write entries to sqlite db: {:#}", e),
                             }
                         },
                         None => {
                             // there are no more running batches
                             self.cache.register(&entry_buffer).await.context("registering entries").or_warn();
                             entry_buffer.clear();
-                            log::info!("Done registering new store paths");
+                            tracing::info!("Done index new store paths");
                             return;
                         },
                     }
                 }
             }
             if get_new_batches && self.semaphore.available_permits() > 0 {
-                log::debug!("starting a new batch of store paths to index");
+                tracing::debug!("starting a new batch of store paths to index");
                 let (paths, id) = match get_new_store_path_batch(max_id).await {
                     Ok(x) => x,
                     Err(e) => {
-                        log::warn!("cannot read nix store db: {:#}", e);
+                        tracing::warn!("cannot read nix store db: {:#}", e);
                         continue;
                     }
                 };
@@ -147,7 +147,7 @@ impl StoreWatcher {
                     .map(|path| self.index_store_path(path, entries_tx.clone()))
                     .collect();
                 if batch.is_empty() {
-                    log::debug!("batch is empty");
+                    tracing::debug!("batch is empty");
                     get_new_batches = false;
                 } else {
                     let batch_handle = join_all(batch).map(move |_| id).boxed();
@@ -170,7 +170,7 @@ impl StoreWatcher {
                         tokio::time::sleep(Duration::from_secs(60)).await;
                     }
                     Err(e) => {
-                        log::warn!("while watching store for new paths: {:#}", e);
+                        tracing::warn!("while watching store for new paths: {:#}", e);
                         tokio::time::sleep(Duration::from_secs(1)).await;
                     }
                 }

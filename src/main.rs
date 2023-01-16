@@ -1,7 +1,6 @@
 use std::net::SocketAddr;
 
 use clap::Parser;
-use env_logger::Env;
 
 mod db;
 mod index;
@@ -23,8 +22,14 @@ pub struct Options {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    if std::env::var_os("RUST_LOG").is_none() {
+        std::env::set_var(
+            "RUST_LOG",
+            "nixseparatedebuginfo=info,tower_http=debug,sqlx=warn,warn",
+        )
+    }
     let args = Options::parse();
-    env_logger::init_from_env(Env::default().default_filter_or("warning"));
+    tracing_subscriber::fmt::init();
 
     server::run_server(args).await
 }

@@ -8,7 +8,7 @@ impl<T: Display> ResultExt for Result<(), T> {
     fn or_warn(self) {
         match self {
             Ok(()) => (),
-            Err(e) => log::warn!("{:#}", e),
+            Err(e) => tracing::warn!("{:#}", e),
         }
     }
 }

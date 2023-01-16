@@ -23,12 +23,12 @@ async fn unwrap_file<T: AsRef<std::path::Path>>(
     path: anyhow::Result<Option<T>>,
     ready: bool,
 ) -> impl IntoResponse {
-    match path {
+    let response = match path {
         Ok(Some(p)) => {
             let exists = realise(p.as_ref()).await;
             match exists {
                 Ok(()) => match tokio::fs::File::open(p.as_ref()).await {
-                    Err(e) => Err((StatusCode::NOT_FOUND, e.to_string())),
+                    Err(e) => Err((StatusCode::NOT_FOUND, format!("{:#}", e))),
                     Ok(file) => {
                         // convert the `AsyncRead` into a `Stream`
                         let stream = ReaderStream::new(file);
@@ -37,7 +37,7 @@ async fn unwrap_file<T: AsRef<std::path::Path>>(
                         Ok(body)
                     }
                 },
-                Err(e) => Err((StatusCode::NOT_FOUND, e.to_string())),
+                Err(e) => Err((StatusCode::NOT_FOUND, format!("{:#}", e))),
             }
         }
         Ok(None) => Err((
@@ -48,8 +48,12 @@ async fn unwrap_file<T: AsRef<std::path::Path>>(
             },
             "not found in cache".to_string(),
         )),
-        Err(e) => Err((StatusCode::NOT_FOUND, e.to_string())),
-    }
+        Err(e) => Err((StatusCode::NOT_FOUND, format!("{:#}", e))),
+    };
+    if let Err((code, error)) = &response {
+        tracing::info!("Responding error {}: {}", code, error);
+    };
+    response
 }
 
 /// Start indexation, and wait for it to complete until timeout.
@@ -58,7 +62,7 @@ async fn unwrap_file<T: AsRef<std::path::Path>>(
 async fn start_indexation_and_wait(watcher: &StoreWatcher, timeout: Duration) -> bool {
     match watcher.maybe_index_new_paths().await {
         Err(e) => {
-            log::warn!("cannot start registration of new store path: {:#}", e);
+            tracing::warn!("cannot start registration of new store path: {:#}", e);
             false
         }
         Ok(None) => true,
@@ -135,7 +139,7 @@ async fn uncompress_archive_file_to_http_body(
         )
         .await
         {
-            log::error!(
+            tracing::error!(
                 "expanding {} from {}: {:#}",
                 member.display(),
                 archive.display(),
@@ -154,7 +158,7 @@ async fn get_source(
     let path: &str = &param.1;
     let request = PathBuf::from(path);
     let sourcefile = fetch_and_get_source(param.0.to_owned(), request, &cache).await;
-    match sourcefile {
+    let response = match sourcefile {
         Ok(Some(SourceLocation::File(path))) => match tokio::fs::File::open(&path).await {
             Err(e) => Err((
                 StatusCode::NOT_FOUND,
@@ -171,7 +175,7 @@ async fn get_source(
         Ok(Some(SourceLocation::Archive { archive, member })) => {
             match uncompress_archive_file_to_http_body(archive, member).await {
                 Ok(r) => Ok(r.into_response()),
-                Err(e) => Err((StatusCode::NOT_FOUND, e.to_string())),
+                Err(e) => Err((StatusCode::NOT_FOUND, format!("{:#}", e))),
             }
         }
         Ok(None) => Err((
@@ -182,8 +186,12 @@ async fn get_source(
             },
             "not found in cache".to_string(),
         )),
-        Err(e) => Err((StatusCode::NOT_FOUND, e.to_string())),
-    }
+        Err(e) => Err((StatusCode::NOT_FOUND, format!("{:#}", e))),
+    };
+    if let Err((code, error)) = &response {
+        tracing::info!("Responding error {}: {}", code, error);
+    };
+    response
 }
 
 async fn get_section(Path(_param): Path<(String, String)>) -> impl IntoResponse {
@@ -207,6 +215,7 @@ pub async fn run_server(args: Options) -> anyhow::Result<()> {
             .route("/buildid/:buildid/source/*path", get(get_source))
             .route("/buildid/:buildid/executable", get(get_executable))
             .route("/buildid/:buildid/debuginfo", get(get_debuginfo))
+            .layer(tower_http::trace::TraceLayer::new_for_http())
             .with_state((cache, watcher));
         axum::Server::bind(&args.listen_address)
             .serve(app.into_make_service())

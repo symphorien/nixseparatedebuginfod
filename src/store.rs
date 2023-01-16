@@ -19,7 +19,7 @@ pub async fn realise(path: &Path) -> anyhow::Result<()> {
     };
     let mut command = Command::new("nix-store");
     command.arg("--realise").arg(path);
-    log::info!("Running {:?}", &command);
+    tracing::info!("Running {:?}", &command);
     let _ = command.status().await;
     if metadata(path).await.is_ok() {
         return Ok(());
@@ -29,7 +29,7 @@ pub async fn realise(path: &Path) -> anyhow::Result<()> {
 
 /// Walks a store path and attempts to register everything that has a buildid in it.
 pub fn index_store_path(storepath: &Path, sendto: Sender<Entry>) {
-    log::debug!("examining {}", storepath.display());
+    let span = tracing::info_span!("indexing", storepath=%storepath.display()).entered();
     if storepath
         .file_name()
         .unwrap_or_default()
@@ -43,14 +43,15 @@ pub fn index_store_path(storepath: &Path, sendto: Sender<Entry>) {
     }
     let deriver_source = Lazy::new(|| match get_deriver(storepath) {
         Err(e) => {
-            log::info!("no deriver for {}: {:#}", storepath.display(), e);
+            tracing::warn!("no deriver for {}: {:#}", storepath.display(), e);
             (None, None)
         }
-        Ok(deriver) => {
+        Ok(None) => (None, None),
+        Ok(Some(deriver)) => {
             if deriver.is_file() {
                 let source = match get_source(deriver.as_path()) {
                     Err(e) => {
-                        log::info!(
+                        tracing::info!(
                             "no source for {} (deriver of {}): {:#}",
                             deriver.display(),
                             storepath.display(),
@@ -77,7 +78,7 @@ pub fn index_store_path(storepath: &Path, sendto: Sender<Entry>) {
         };
         let readroot = match std::fs::read_dir(&root) {
             Err(e) => {
-                log::warn!("could not list {}: {:#}", root.display(), e);
+                tracing::warn!("could not list {}: {:#}", root.display(), e);
                 return;
             }
             Ok(r) => r,
@@ -85,7 +86,7 @@ pub fn index_store_path(storepath: &Path, sendto: Sender<Entry>) {
         for mid in readroot {
             let mid = match mid {
                 Err(e) => {
-                    log::warn!("could not list {}: {:#}", root.display(), e);
+                    tracing::warn!("could not list {}: {:#}", root.display(), e);
                     continue;
                 }
                 Ok(mid) => mid,
@@ -101,7 +102,7 @@ pub fn index_store_path(storepath: &Path, sendto: Sender<Entry>) {
             };
             let read_mid = match std::fs::read_dir(&mid_path) {
                 Err(e) => {
-                    log::warn!("could not list {}: {:#}", mid_path.display(), e);
+                    tracing::warn!("could not list {}: {:#}", mid_path.display(), e);
                     continue;
                 }
                 Ok(r) => r,
@@ -109,7 +110,7 @@ pub fn index_store_path(storepath: &Path, sendto: Sender<Entry>) {
             for end in read_mid {
                 let end = match end {
                     Err(e) => {
-                        log::warn!("could not list {}: {:#}", mid_path.display(), e);
+                        tracing::warn!("could not list {}: {:#}", mid_path.display(), e);
                         continue;
                     }
                     Ok(end) => end,
@@ -134,9 +135,11 @@ pub fn index_store_path(storepath: &Path, sendto: Sender<Entry>) {
                 let entry = Entry {
                     debuginfo: end.path().to_str().map(|s| s.to_owned()),
                     executable: None,
-                    source: source
-                        .as_ref()
-                        .and_then(|path| path.to_str().map(|s| s.to_owned())),
+                    source: source.as_ref().and_then(|path| {
+                        path.as_ref()
+                            .and_then(|path| path.to_str())
+                            .map(|s| s.to_owned())
+                    }),
                     buildid,
                 };
                 sendto
@@ -153,7 +156,7 @@ pub fn index_store_path(storepath: &Path, sendto: Sender<Entry>) {
                 Some(deriver) => match get_debug_output(deriver.as_path()) {
                     Ok(None) => None,
                     Err(e) => {
-                        log::warn!(
+                        tracing::warn!(
                             "could not determine if the deriver {} of {} has a debug output: {:#}",
                             storepath.display(),
                             deriver.display(),
@@ -176,7 +179,7 @@ pub fn index_store_path(storepath: &Path, sendto: Sender<Entry>) {
             let path = file.path();
             let buildid = match get_buildid(path) {
                 Err(e) => {
-                    log::info!("cannot get buildid of {}: {:#}", path.display(), e);
+                    tracing::info!("cannot get buildid of {}: {:#}", path.display(), e);
                     continue;
                 }
                 Ok(Some(buildid)) => buildid,
@@ -189,7 +192,7 @@ pub fn index_store_path(storepath: &Path, sendto: Sender<Entry>) {
                     if storepath.is_dir() {
                         // the store path is available, check the prediction
                         if !theoretical.is_file() {
-                            log::warn!(
+                            tracing::warn!(
                                 "{} has buildid {}, and {} exists but not {}",
                                 path.display(),
                                 buildid,
@@ -208,9 +211,11 @@ pub fn index_store_path(storepath: &Path, sendto: Sender<Entry>) {
             let (_, source) = &*deriver_source;
             let entry = Entry {
                 buildid,
-                source: source
-                    .as_ref()
-                    .and_then(|path| path.to_str().map(|s| s.to_owned())),
+                source: source.as_ref().and_then(|path| {
+                    path.as_ref()
+                        .and_then(|path| path.to_str())
+                        .map(|s| s.to_owned())
+                }),
                 executable: path.to_str().map(|s| s.to_owned()),
                 debuginfo: debuginfo.and_then(|path| path.to_str().map(|s| s.to_owned())),
             };
@@ -220,6 +225,7 @@ pub fn index_store_path(storepath: &Path, sendto: Sender<Entry>) {
                 .or_warn();
         }
     }
+    drop(span)
 }
 
 /// Return the path where separate debuginfo is to be found in a debug output for a buildid
@@ -236,10 +242,10 @@ fn debuginfo_path_for(buildid: &str, debug_output: &Path) -> PathBuf {
 /// Obtains the derivation of a store path.
 ///
 /// The store path must exist.
-fn get_deriver(storepath: &Path) -> anyhow::Result<PathBuf> {
+fn get_deriver(storepath: &Path) -> anyhow::Result<Option<PathBuf>> {
     let mut cmd = std::process::Command::new("nix-store");
     cmd.arg("--query").arg("--deriver").arg(storepath);
-    log::debug!("Running {:?}", &cmd);
+    tracing::debug!("Running {:?}", &cmd);
     let out = cmd.output().with_context(|| format!("running {:?}", cmd))?;
     if !out.status.success() {
         anyhow::bail!("{:?} failed: {}", cmd, String::from_utf8_lossy(&out.stderr));
@@ -253,11 +259,14 @@ fn get_deriver(storepath: &Path) -> anyhow::Result<PathBuf> {
         );
     }
     let path = PathBuf::from(OsString::from_vec(out.stdout[..n - 1].to_owned()));
+    if path.as_path() == Path::new("unknown-deriver") {
+        return Ok(None);
+    }
     if !path.is_absolute() {
         // nix returns `unknown-deriver` when it does not know
-        anyhow::bail!("no deriver");
+        anyhow::bail!("no deriver: {}", path.display());
     };
-    Ok(path)
+    Ok(Some(path))
 }
 
 /// Obtains the debug output corresponding to this derivation
@@ -266,7 +275,7 @@ fn get_deriver(storepath: &Path) -> anyhow::Result<PathBuf> {
 fn get_debug_output(drvpath: &Path) -> anyhow::Result<Option<PathBuf>> {
     let mut cmd = std::process::Command::new("nix-store");
     cmd.arg("--query").arg("--outputs").arg(drvpath);
-    log::debug!("Running {:?}", &cmd);
+    tracing::debug!("Running {:?}", &cmd);
     let out = cmd.output().with_context(|| format!("running {:?}", cmd))?;
     if !out.status.success() {
         anyhow::bail!("{:?} failed: {}", cmd, String::from_utf8_lossy(&out.stderr));
@@ -284,13 +293,21 @@ fn get_debug_output(drvpath: &Path) -> anyhow::Result<Option<PathBuf>> {
 /// The derivation must exist.
 ///
 /// Source is understood as `src = `, multiple sources or patches are not supported.
-fn get_source(drvpath: &Path) -> anyhow::Result<PathBuf> {
+fn get_source(drvpath: &Path) -> anyhow::Result<Option<PathBuf>> {
     let mut cmd = std::process::Command::new("nix-store");
     cmd.arg("--query").arg("--binding").arg("src").arg(drvpath);
-    log::debug!("Running {:?}", &cmd);
+    tracing::debug!("Running {:?}", &cmd);
     let out = cmd.output().with_context(|| format!("running {:?}", cmd))?;
     if !out.status.success() {
-        anyhow::bail!("{:?} failed: {}", cmd, String::from_utf8_lossy(&out.stderr));
+        if out
+            .stderr
+            .as_slice()
+            .ends_with(b"has no environment binding named 'src'\n")
+        {
+            return Ok(None);
+        } else {
+            anyhow::bail!("{:?} failed: {}", cmd, String::from_utf8_lossy(&out.stderr));
+        }
     }
     let n = out.stdout.len();
     if n <= 1 || out.stdout[n - 1] != b'\n' {
@@ -302,10 +319,9 @@ fn get_source(drvpath: &Path) -> anyhow::Result<PathBuf> {
     }
     let path = PathBuf::from(OsString::from_vec(out.stdout[..n - 1].to_owned()));
     if !path.is_absolute() {
-        // nix returns `unknown-deriver` when it does not know
-        anyhow::bail!("no deriver");
+        anyhow::bail!("weird source: {}", path.display());
     };
-    Ok(path)
+    Ok(Some(path))
 }
 
 /// Where a source file might be
@@ -376,7 +392,7 @@ pub fn get_file_for_source(
         for file in walkdir::WalkDir::new(source) {
             match file {
                 Err(e) => {
-                    log::warn!("failed to walk source {}: {:#}", source.display(), e);
+                    tracing::warn!("failed to walk source {}: {:#}", source.display(), e);
                     continue;
                 }
                 Ok(f) => {
