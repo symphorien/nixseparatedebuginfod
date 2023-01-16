@@ -145,7 +145,7 @@ impl Cache {
             .context("reading debuginfo from cache db")?;
         Ok(match row {
             None => None,
-            Some(r) => Some(r.try_get("debuginfo")?),
+            Some(r) => r.try_get("debuginfo")?,
         })
     }
 
@@ -160,7 +160,7 @@ impl Cache {
             .context("reading executable from cache db")?;
         Ok(match row {
             None => None,
-            Some(r) => Some(r.try_get("executable")?),
+            Some(r) => r.try_get("executable")?,
         })
     }
 
@@ -175,7 +175,7 @@ impl Cache {
             .context("reading executable from cache db")?;
         Ok(match row {
             None => None,
-            Some(r) => Some(r.try_get("source")?),
+            Some(r) => r.try_get("source")?,
         })
     }
 
