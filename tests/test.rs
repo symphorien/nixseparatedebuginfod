@@ -14,7 +14,7 @@ fn nixseparatedebuginfod(t: &TempDir) -> Command {
 fn populate_cache(t: &TempDir) {
     let mut cmd = nixseparatedebuginfod(t);
     cmd.arg("-i");
-    cmd.assert().success();
+    dbg!(cmd).assert().success();
 }
 
 /// Spawns a nixseparatedebuginfod on a random port
@@ -26,7 +26,7 @@ fn spawn_server(t: &TempDir) -> (u16, std::process::Child) {
     cmd.arg("-l");
     cmd.arg(format!("127.0.0.1:{port}"));
     suicide(&mut cmd);
-    let handle = cmd.spawn().unwrap();
+    let handle = dbg!(cmd).spawn().unwrap();
     (port, handle)
 }
 
@@ -56,7 +56,7 @@ fn gdb(t: &TempDir, exe: &Path, port: u16, commands: &str) -> String {
     cmd.arg("-n");
     cmd.arg("-x");
     cmd.arg(&tmpfile);
-    let output = cmd.output().unwrap();
+    let output = dbg!(cmd).output().unwrap();
     String::from_utf8_lossy(&output.stdout).to_string()
 }
 
@@ -83,7 +83,26 @@ fn nix_build(attr: &str, output: &Path) {
     cmd.arg(attr);
     cmd.arg("-o");
     cmd.arg(output);
-    cmd.assert().success();
+    dbg!(cmd).assert().success();
+}
+
+fn remove_debug_output(attr: &str) {
+    let mut cmd = Command::new("nix-instantiate");
+    cmd.arg("--eval").arg("-E").arg(format!(
+        "(import {}).{}.debug.outPath",
+        fixture("debugees.nix").display(),
+        attr
+    ));
+    let out = dbg!(cmd).output().unwrap();
+    let out = String::from_utf8_lossy(&out.stdout);
+    let path = Path::new(dbg!(out.trim_matches(&['"', '\n'] as &[_])));
+    assert!(path.is_absolute());
+
+    if path.exists() {
+        let mut cmd = Command::new("nix-store");
+        cmd.arg("--delete").arg(path);
+        dbg!(cmd).assert().success();
+    }
 }
 
 #[test]
@@ -93,6 +112,8 @@ fn test() {
     // gnumake has source in tar.gz files
     let output = file_in(&t, "gnumake");
     nix_build("gnumake", &output);
+
+    remove_debug_output("gnumake");
 
     let (port, mut server) = spawn_server(&t);
 
@@ -119,7 +140,7 @@ fn test() {
     exe.push("bin");
     exe.push("nix");
     let out = gdb(&t, &exe, port, "start\nl\n");
-    assert!(dbg!(out).contains("400	int main(int argc, char * * argv)"));
+    assert!(dbg!(out).contains("389\tint main(int argc, char * * argv)"));
 
     server.kill().unwrap();
 }
