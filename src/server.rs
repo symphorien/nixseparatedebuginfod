@@ -4,6 +4,8 @@ use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use axum::{routing::get, Router};
+use http::header::{HeaderMap, CONTENT_LENGTH};
+use std::os::unix::prelude::MetadataExt;
 use std::path::PathBuf;
 use std::time::Duration;
 use tokio_util::io::ReaderStream;
@@ -30,11 +32,18 @@ async fn unwrap_file<T: AsRef<std::path::Path>>(
                 Ok(()) => match tokio::fs::File::open(p.as_ref()).await {
                     Err(e) => Err((StatusCode::NOT_FOUND, format!("{:#}", e))),
                     Ok(file) => {
+                        let mut headers = HeaderMap::new();
+                        if let Ok(metadata) = p.as_ref().metadata() {
+                            if let Ok(value) = metadata.size().to_string().parse() {
+                                headers.insert(CONTENT_LENGTH, value);
+                            }
+                        }
+                        tracing::info!("returning {}", p.as_ref().display());
                         // convert the `AsyncRead` into a `Stream`
                         let stream = ReaderStream::new(file);
                         // convert the `Stream` into an `axum::body::HttpBody`
                         let body = StreamBody::new(stream);
-                        Ok(body)
+                        Ok((headers, body))
                     }
                 },
                 Err(e) => Err((StatusCode::NOT_FOUND, format!("{:#}", e))),
@@ -119,8 +128,8 @@ async fn fetch_and_get_source(
 }
 
 async fn uncompress_archive_file_to_http_body(
-    archive: PathBuf,
-    member: PathBuf,
+    archive: &std::path::Path,
+    member: &std::path::Path,
 ) -> anyhow::Result<impl IntoResponse> {
     let archive_file = tokio::fs::File::open(&archive)
         .await
@@ -131,6 +140,8 @@ async fn uncompress_archive_file_to_http_body(
         .to_string();
     let (asyncwriter, asyncreader) = tokio::io::duplex(256 * 1024);
     let streamreader = tokio_util::io::ReaderStream::new(asyncreader);
+    let archive = archive.to_path_buf();
+    let member = member.to_path_buf();
     let decompressor_future = async move {
         if let Err(e) = compress_tools::tokio_support::uncompress_archive_file(
             archive_file,
@@ -165,19 +176,30 @@ async fn get_source(
                 format!("opening {}: {:#}", path.display(), e),
             )),
             Ok(file) => {
+                let mut headers = HeaderMap::new();
+                if let Ok(metadata) = path.metadata() {
+                    if let Ok(value) = metadata.size().to_string().parse() {
+                        headers.insert(CONTENT_LENGTH, value);
+                    }
+                }
+                tracing::info!("returning {}", path.display());
                 // convert the `AsyncRead` into a `Stream`
                 let stream = ReaderStream::new(file);
                 // convert the `Stream` into an `axum::body::HttpBody`
                 let body = StreamBody::new(stream);
-                Ok(body.into_response())
+                Ok((headers, body).into_response())
             }
         },
-        Ok(Some(SourceLocation::Archive { archive, member })) => {
-            match uncompress_archive_file_to_http_body(archive, member).await {
-                Ok(r) => Ok(r.into_response()),
-                Err(e) => Err((StatusCode::NOT_FOUND, format!("{:#}", e))),
+        Ok(Some(SourceLocation::Archive {
+            ref archive,
+            ref member,
+        })) => match uncompress_archive_file_to_http_body(&archive, &member).await {
+            Ok(r) => {
+                tracing::info!("returning {} from {}", member.display(), archive.display());
+                Ok(r.into_response())
             }
-        }
+            Err(e) => Err((StatusCode::NOT_FOUND, format!("{:#}", e))),
+        },
         Ok(None) => Err((
             if ready {
                 StatusCode::NOT_FOUND

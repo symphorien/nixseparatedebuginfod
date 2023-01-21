@@ -854,6 +854,7 @@ dependencies = [
  "compress-tools",
  "directories",
  "futures-util",
+ "http",
  "object",
  "once_cell",
  "prctl",
