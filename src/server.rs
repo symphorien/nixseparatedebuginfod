@@ -7,6 +7,7 @@ use axum::{routing::get, Router};
 use http::header::{HeaderMap, CONTENT_LENGTH};
 use std::os::unix::prelude::MetadataExt;
 use std::path::PathBuf;
+use std::process::ExitCode;
 use std::time::Duration;
 use tokio_util::io::ReaderStream;
 
@@ -220,7 +221,7 @@ async fn get_section(Path(_param): Path<(String, String)>) -> impl IntoResponse 
     StatusCode::NOT_IMPLEMENTED
 }
 
-pub async fn run_server(args: Options) -> anyhow::Result<()> {
+pub async fn run_server(args: Options) -> anyhow::Result<ExitCode> {
     let cache = Cache::open().await.context("opening global cache")?;
     let cache: &'static Cache = Box::leak(Box::new(cache));
     let watcher = StoreWatcher::new(cache);
@@ -229,7 +230,8 @@ pub async fn run_server(args: Options) -> anyhow::Result<()> {
         match watcher.maybe_index_new_paths().await? {
             None => (),
             Some(handle) => handle.await?,
-        }
+        };
+        Ok(ExitCode::SUCCESS)
     } else {
         watcher.watch_store();
         let app = Router::new()
@@ -242,6 +244,6 @@ pub async fn run_server(args: Options) -> anyhow::Result<()> {
         axum::Server::bind(&args.listen_address)
             .serve(app.into_make_service())
             .await?;
+        Ok(ExitCode::SUCCESS)
     }
-    Ok(())
 }

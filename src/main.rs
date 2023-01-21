@@ -1,4 +1,4 @@
-use std::net::SocketAddr;
+use std::{net::SocketAddr, process::ExitCode};
 
 use clap::Parser;
 
@@ -21,7 +21,7 @@ pub struct Options {
 }
 
 #[tokio::main]
-async fn main() -> anyhow::Result<()> {
+async fn main() -> anyhow::Result<ExitCode> {
     match (std::env::var_os("XDG_CACHE_HOME"), std::env::var_os("CACHE_DIRECTORY")) {
         (None, Some(dir)) => {
             // this env var is set by systemd
@@ -38,5 +38,13 @@ async fn main() -> anyhow::Result<()> {
     let args = Options::parse();
     tracing_subscriber::fmt::init();
 
-    server::run_server(args).await
+    // check that nix-store is present
+    let mut cmd = std::process::Command::new("nix-store");
+    cmd.arg("--version");
+    if let Err(e) = cmd.status() {
+        tracing::error!("command nix-store is not available: {}", e);
+        return Ok(ExitCode::FAILURE);
+    } else {
+        server::run_server(args).await
+    }
 }
