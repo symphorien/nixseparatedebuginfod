@@ -121,7 +121,7 @@ impl Cache {
     pub async fn open() -> anyhow::Result<Cache> {
         match Cache::open_weak().await {
             Err(e) => {
-                tracing::warn!("could use on disk cache ({:#}), running cache in memory", e);
+                tracing::warn!("could not use on disk cache ({:#}), running cache in memory", e);
                 let pool = SqlitePool::connect(":memory:")
                     .await
                     .context("opening in memory sql db")?;

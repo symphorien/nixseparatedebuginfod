@@ -159,7 +159,7 @@ impl StoreWatcher {
                             // there are no more running batches
                             self.cache.register(&entry_buffer).await.context("registering entries").or_warn();
                             entry_buffer.clear();
-                            tracing::info!("Done index new store paths");
+                            tracing::info!("Done indexing new store paths");
                             return;
                         },
                     }
