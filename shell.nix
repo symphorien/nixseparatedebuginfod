@@ -8,6 +8,9 @@ mkShell {
     sqlite
     (gdb.override { enableDebuginfod = true; })
     pkg-config
+    reuse
+    cargo-license
+    cargo-outdated
   ];
   buildInputs = [ libarchive ];
   RUST_BACKTRACE="full";

@@ -193,9 +193,9 @@ rec {
       };
       "async-trait" = rec {
         crateName = "async-trait";
-        version = "0.1.61";
+        version = "0.1.62";
         edition = "2018";
-        sha256 = "10m2lq1p1gwg96a28y6mzccwz0jnv14x1cyj10lhwsd9wkh3jlvh";
+        sha256 = "1vgrc7wbinjiakzmaaal09s8h461y6mrkf9l12jl79hyvg199638";
         procMacro = true;
         authors = [
           "David Tolnay <dtolnay@gmail.com>"
@@ -245,9 +245,9 @@ rec {
       };
       "axum" = rec {
         crateName = "axum";
-        version = "0.6.2";
+        version = "0.6.3";
         edition = "2021";
-        sha256 = "0zpvwzly0g113qyvl5mk972j95wg71rq5vc3n1qbs0ngc6sfl10k";
+        sha256 = "0hx5ngf5n2mrrm3sq3j4p009710l7hwig6kzg5y3mbh7llq53337";
         dependencies = [
           {
             name = "async-trait";
@@ -412,9 +412,9 @@ rec {
       };
       "axum-core" = rec {
         crateName = "axum-core";
-        version = "0.3.1";
+        version = "0.3.2";
         edition = "2021";
-        sha256 = "1a246jyy02yv8fzcz68gk15aangi4a2zi7bpl7c29vnsr46y91zl";
+        sha256 = "0d4d304j18raiziy3xqp23km14cck8429a7i635vmzvn2rk3xbhw";
         dependencies = [
           {
             name = "async-trait";
@@ -481,9 +481,9 @@ rec {
       };
       "base64" = rec {
         crateName = "base64";
-        version = "0.13.1";
-        edition = "2018";
-        sha256 = "1s494mqmzjb766fy1kqlccgfg2sdcjb6hzbvzqv2jw65fdi5h6wy";
+        version = "0.21.0";
+        edition = "2021";
+        sha256 = "0sidjip5b33sr6w7kasfj9qxpbda41nw0x4gjjk55g55a6mdv954";
         authors = [
           "Alice Maz <alice@alicemaz.com>"
           "Marshall Pierce <marshall@mpierce.org>"
@@ -567,9 +567,9 @@ rec {
       };
       "bumpalo" = rec {
         crateName = "bumpalo";
-        version = "3.11.1";
+        version = "3.12.0";
         edition = "2021";
-        sha256 = "1fl072w8wia496byc2h6ck2159sir2jjrb8niwq8h4916r8njbsp";
+        sha256 = "0damxqdgqqzp3zyfwvbrg5hzx39kqgxnxl3yyq3kk4ald0jiw9hd";
         authors = [
           "Nick Fitzgerald <fitzgen@gmail.com>"
         ];
@@ -885,9 +885,9 @@ rec {
       };
       "crc-catalog" = rec {
         crateName = "crc-catalog";
-        version = "2.1.0";
+        version = "2.2.0";
         edition = "2018";
-        sha256 = "1zzkk9fjm262z5hrg4xsx77grvmmld6vq2z86s77grhaj396a09d";
+        sha256 = "115l7pzskv5xzp9i7146rp1qrbfdi7gikig1p80p6zpham7fib4w";
         authors = [
           "Akhil Velagapudi <akhilvelagapudi@gmail.com>"
         ];
@@ -2034,9 +2034,9 @@ rec {
       };
       "io-lifetimes" = rec {
         crateName = "io-lifetimes";
-        version = "1.0.3";
+        version = "1.0.4";
         edition = "2018";
-        sha256 = "0g76f1c4w3cgyl6qn3kfmi7srphrmjhx3a0rl4qks4ib4n9jl4a6";
+        sha256 = "17lfpl3p4ja0l217zkhgjqssyg1ris9imbc46ka9wjqvr7wcdmp7";
         authors = [
           "Dan Gohman <dev@sunfishcode.online>"
         ];
@@ -2438,9 +2438,9 @@ rec {
       };
       "nix" = rec {
         crateName = "nix";
-        version = "0.26.1";
+        version = "0.26.2";
         edition = "2018";
-        sha256 = "155610n6bp37sqg7p0qihzi0jnvqkpqc40nyik89frbc6lfqv9a6";
+        sha256 = "06lfvjhsj5zlslsg2jhijrm69npprmsh7r1667qnl7c2jv8s7pdz";
         authors = [
           "The nix-rust Project Developers"
         ];
@@ -2611,9 +2611,9 @@ rec {
       };
       "nom" = rec {
         crateName = "nom";
-        version = "7.1.2";
+        version = "7.1.3";
         edition = "2018";
-        sha256 = "132lkkqd8hcbmpb90hncwknr7rn6knfq7774d679k74iqilpfl75";
+        sha256 = "0jha9901wxam390jcf5pfa0qqfrgh8li787jx2ip0yk5b8y9hwyj";
         authors = [
           "contact@geoffroycouprie.com"
         ];
@@ -2707,9 +2707,9 @@ rec {
       };
       "object" = rec {
         crateName = "object";
-        version = "0.30.1";
+        version = "0.30.2";
         edition = "2018";
-        sha256 = "0yhh9pgsidiyjifyxxid9icihqdcrq5bm3drg5kikp4zd28lr1ld";
+        sha256 = "10ray8y8mi6hhx2hjm9z2pr0w9xa59629358y91kch7b2djpi31b";
         dependencies = [
           {
             name = "flate2";
@@ -3127,9 +3127,9 @@ rec {
       };
       "proc-macro2" = rec {
         crateName = "proc-macro2";
-        version = "1.0.49";
+        version = "1.0.50";
         edition = "2018";
-        sha256 = "19b3xdfmnay9mchza82lhb3n8qjrfzkxwd23f50xxzy4z6lyra2p";
+        sha256 = "1qmsy8372anynndlfa0qig5y73gjnyvxldsrxs52vbygx9xxbxvf";
         authors = [
           "David Tolnay <dtolnay@gmail.com>"
           "Alex Crichton <alex@alexcrichton.com>"
@@ -3426,9 +3426,9 @@ rec {
       };
       "rustix" = rec {
         crateName = "rustix";
-        version = "0.36.6";
+        version = "0.36.7";
         edition = "2018";
-        sha256 = "0ja5vcjlfc10d97dgdz57c7spv1nrm4jdqgdqhlw7il2nrywzsjg";
+        sha256 = "00qvr05clvkp5h228bg42rxiw1fr1vi65r0imfwzpdwmng2fpzfl";
         authors = [
           "Dan Gohman <dev@sunfishcode.online>"
           "Jakub Konka <kubkon@jakubkonka.com>"
@@ -3539,9 +3539,9 @@ rec {
       };
       "rustls" = rec {
         crateName = "rustls";
-        version = "0.20.7";
+        version = "0.20.8";
         edition = "2018";
-        sha256 = "0b4cwi00llwrgzpq4prpdlbz5751nqgbsxiqjgx1niwgj3z2p6jk";
+        sha256 = "0bqfymq5bjs1jxg1iw2nn4ab3kzz2lrk8a1vx3s98lhp9p3qzxzz";
         dependencies = [
           {
             name = "log";
@@ -3579,9 +3579,9 @@ rec {
       };
       "rustls-pemfile" = rec {
         crateName = "rustls-pemfile";
-        version = "1.0.1";
+        version = "1.0.2";
         edition = "2018";
-        sha256 = "0mdxhxp73vxh5pqk5nx2xdxg1z1xkn1yzrc6inh5mh7qagzswr08";
+        sha256 = "16x5jhja8z0j5hcrlaqqz5qnyg9qgv8qqffwbdil6fl0b1nvb56i";
         dependencies = [
           {
             name = "base64";
@@ -3943,9 +3943,9 @@ rec {
       };
       "sqlformat" = rec {
         crateName = "sqlformat";
-        version = "0.2.0";
+        version = "0.2.1";
         edition = "2021";
-        sha256 = "12n3vf2jh4lxzbv5ngwxb7ncmjz2ci1pghs33abm9wci88mjjzpq";
+        sha256 = "0gpf3a5yr53vhk8n54h1rz6igx87gis52w4bcws85nyik68vq4hc";
         authors = [
           "Josh Holmer <jholmer.in@gmail.com>"
         ];
@@ -4553,9 +4553,9 @@ rec {
       };
       "termcolor" = rec {
         crateName = "termcolor";
-        version = "1.1.3";
+        version = "1.2.0";
         edition = "2018";
-        sha256 = "0mbpflskhnz3jf312k50vn0hqbql8ga2rk0k79pkgchip4q4vcms";
+        sha256 = "1dmrbsljxpfng905qkaxljlwjhv8h0i3969cbiv5rb7y8a4wymdy";
         authors = [
           "Andrew Gallant <jamslam@gmail.com>"
         ];
@@ -4673,9 +4673,9 @@ rec {
       };
       "tokio" = rec {
         crateName = "tokio";
-        version = "1.24.1";
+        version = "1.24.2";
         edition = "2018";
-        sha256 = "1bk79mi9bw8w4h0fjbsj7a5f6yfrs4mn1mfpw5azpv4i7wc7d7qx";
+        sha256 = "1fxhf69ih3v28wh73l782pjgd6bkqfq8arr1ip1y7nc1k6ji4yjr";
         authors = [
           "Tokio Contributors <team@tokio.rs>"
         ];
@@ -5424,9 +5424,9 @@ rec {
       };
       "unicode-bidi" = rec {
         crateName = "unicode-bidi";
-        version = "0.3.8";
+        version = "0.3.10";
         edition = "2018";
-        sha256 = "14p95n9kw9p7psp0vsp0j9yfkfg6sn1rlnymvmwmya0x60l736q9";
+        sha256 = "0n6xjbmzvzxf5dls14h6llf6x249rnxbk3frrdwgvghx5icpainm";
         libName = "unicode_bidi";
         authors = [
           "The Servo Project Developers"
@@ -6745,9 +6745,9 @@ rec {
       };
       "windows_aarch64_gnullvm" = rec {
         crateName = "windows_aarch64_gnullvm";
-        version = "0.42.0";
+        version = "0.42.1";
         edition = "2018";
-        sha256 = "17m1p753qk02r25afg31dxym4rpy7kpr0z8nwl5f1jzhyrqsmlj1";
+        sha256 = "0256d14kqpiniwcm6y2yfj7jbzdvvj4l6i65r5zyrza36bl6964c";
         authors = [
           "Microsoft"
         ];
@@ -6755,9 +6755,9 @@ rec {
       };
       "windows_aarch64_msvc" = rec {
         crateName = "windows_aarch64_msvc";
-        version = "0.42.0";
+        version = "0.42.1";
         edition = "2018";
-        sha256 = "1d6d9ny0yl5l9vvagydigvkfcphzk2aygchiccywijimb8pja3yx";
+        sha256 = "1iy6adiaz2956f0kcl2wfdjx49ayv2lp11glkxxc85pw7xkip2sc";
         authors = [
           "Microsoft"
         ];
@@ -6765,9 +6765,9 @@ rec {
       };
       "windows_i686_gnu" = rec {
         crateName = "windows_i686_gnu";
-        version = "0.42.0";
+        version = "0.42.1";
         edition = "2018";
-        sha256 = "1rsxdjp50nk38zfd1dxj12i2qmhpvxsm6scdq8v1d10ncygy3spv";
+        sha256 = "0h6n8mqjfq1rk4vpr9gz8md1b8f7bqksiymivdxvlc6mi998ff6y";
         authors = [
           "Microsoft"
         ];
@@ -6775,9 +6775,9 @@ rec {
       };
       "windows_i686_msvc" = rec {
         crateName = "windows_i686_msvc";
-        version = "0.42.0";
+        version = "0.42.1";
         edition = "2018";
-        sha256 = "0ii2hrsdif2ms79dfiyfzm1n579jzj42ji3fpsxd57d3v9jjzhc4";
+        sha256 = "01966w2707qrw183lqg62i1as614i88m5a0s6pzxdpby64i12kdz";
         authors = [
           "Microsoft"
         ];
@@ -6785,9 +6785,9 @@ rec {
       };
       "windows_x86_64_gnu" = rec {
         crateName = "windows_x86_64_gnu";
-        version = "0.42.0";
+        version = "0.42.1";
         edition = "2018";
-        sha256 = "1vdh8k5a4m6pfkc5gladqznyqxgapkjm0qb8iwqvqb1nnlhinyxz";
+        sha256 = "0icwd66wd6p9hhzds93333wy2knlqbyiynf2rfy7xqc528i0y161";
         authors = [
           "Microsoft"
         ];
@@ -6795,9 +6795,9 @@ rec {
       };
       "windows_x86_64_gnullvm" = rec {
         crateName = "windows_x86_64_gnullvm";
-        version = "0.42.0";
+        version = "0.42.1";
         edition = "2018";
-        sha256 = "0a10rns9b07m9snlr97iqxq42zi9ai547gb5fqlv7vihpb92bm89";
+        sha256 = "0qq41m3zkakkmch9x4x30lgv0sy3zh4jpdpxch6jp8ns6brgv2v2";
         authors = [
           "Microsoft"
         ];
@@ -6805,9 +6805,9 @@ rec {
       };
       "windows_x86_64_msvc" = rec {
         crateName = "windows_x86_64_msvc";
-        version = "0.42.0";
+        version = "0.42.1";
         edition = "2018";
-        sha256 = "1xdnvhg8yj4fgjy0vkrahq5cbgfpcd7ak2bdv8s5lwjrazc0j07l";
+        sha256 = "1zfgzsmc0j5p9yx25j15lb1yh45mazl4hhjdvfqqhcm16snn0xj4";
         authors = [
           "Microsoft"
         ];
