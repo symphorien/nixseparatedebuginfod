@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2023 Guillaume Girol <symphorien+git@xlumurb.eu>
+//
+// SPDX-License-Identifier: GPL-3.0-only
+
 use anyhow::Context;
 use axum::body::StreamBody;
 use axum::extract::{Path, State};

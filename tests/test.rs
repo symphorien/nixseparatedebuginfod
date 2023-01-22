@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2023 Guillaume Girol <symphorien+git@xlumurb.eu>
+//
+// SPDX-License-Identifier: GPL-3.0-only
+
 use assert_cmd::prelude::*;
 use std::path::Path;
 use std::process::Command;

@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2023 Guillaume Girol <symphorien+git@xlumurb.eu>
+//
+// SPDX-License-Identifier: GPL-3.0-only
+
 use crate::db::{Cache, Entry, Id};
 use crate::log::ResultExt;
 use crate::store::index_store_path;

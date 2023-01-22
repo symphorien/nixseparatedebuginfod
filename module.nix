@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2023 Guillaume Girol <symphorien+git@xlumurb.eu>
+#
+# SPDX-License-Identifier: CC0-1.0
+
 { pkgs, lib, config, ... }:
 let
   cfg = config.services.nixseparatedebuginfod;

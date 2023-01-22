@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2023 Guillaume Girol <symphorien+git@xlumurb.eu>
+#
+# SPDX-License-Identifier: GPL-3.0-only
+
 let
   nixpkgs = builtins.fetchTarball {
     url = "https://github.com/NixOS/nixpkgs/archive/087416863971.tar.gz";
