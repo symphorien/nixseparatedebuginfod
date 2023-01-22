@@ -16,10 +16,18 @@ Most software in `nixpkgs` is stripped, so hard to debug. But some key packages 
 
 ### On NixOS
 
-A NixOS module is provided for your convenience in `./module.nix`.
-It provides a version of `gdb` compiled with `debuginfod` support, so you should uninstall `gdb` from other source (`nix-env`, `home-manager`).
+A NixOS module is provided for your convenience in `./module.nix`. Add it to the `imports` section of `/etc/nixos/configuration.nix`:
+```nix
+imports = [
+    ((builtins.fetchTarball {
+      url = "https://github.com/symphorien/nixseparatedebuginfod/archive/f16698d83cfe747d394755539348ce2c0e205b4b.tar.gz";
+      sha256 = "sha256:0p0gjwpwzsbr346khvyfvii55847sww4kqw7fv690ikaa1gmggsq";
+    }) + "/module.nix")
+];
+```
+(adapt the revision and sha256 to a recent one).
+This module provides a version of `gdb` compiled with `debuginfod` support, so you should uninstall `gdb` from other source (`nix-env`, `home-manager`).
 As the module sets an environment variable, you need to log out/lo gin again or reboot for it to work.
-
 
 ### Manual installation
 
