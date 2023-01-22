@@ -26,12 +26,15 @@ pub struct Options {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<ExitCode> {
-    match (std::env::var_os("XDG_CACHE_HOME"), std::env::var_os("CACHE_DIRECTORY")) {
+    match (
+        std::env::var_os("XDG_CACHE_HOME"),
+        std::env::var_os("CACHE_DIRECTORY"),
+    ) {
         (None, Some(dir)) => {
             // this env var is set by systemd
             std::env::set_var("XDG_CACHE_HOME", dir);
-        },
-        _ => ()
+        }
+        _ => (),
     }
     if std::env::var_os("RUST_LOG").is_none() {
         std::env::set_var(
