@@ -33,7 +33,7 @@ Software with `debuginfod` support should now use `nixseparatedebuginfod`. Unfor
 - In `/etc/nixos/configuration.nix` or `~/.config/nixpkgs/home.nix` replace the `pkgs.gdb` entry in `home.packages` or `environment.systemPackages` by `(gdb.override { enableDebuginfod = true })`. Don't use an overlay, as `gdb` is a mass rebuild.
 - In `~/.gdbinit` put
 ```
-set `debuginfod` enabled on
+set debuginfod enabled on
 ```
 otherwise, it will ask for confirmation every time.
 
