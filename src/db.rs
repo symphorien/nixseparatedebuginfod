@@ -7,6 +7,8 @@ use directories::ProjectDirs;
 use sha2::Digest;
 use sqlx::{sqlite::SqlitePool, Row};
 
+use crate::log::ResultExt;
+
 /// Store path id
 pub type Id = u32;
 
@@ -93,6 +95,7 @@ impl Cache {
         std::fs::create_dir_all(&path)
             .with_context(|| format!("creating cache directory {}", path.display()))?;
         path.push("cache.sqlite3");
+        let cache_exists = path.exists();
         let path_utf8 = match path.to_str() {
             Some(p) => p,
             None => bail!("cache path {} is not utf8", path.display()),
@@ -101,6 +104,9 @@ impl Cache {
         let pool = SqlitePool::connect(&url)
             .await
             .with_context(|| format!("failed to connect to {} with sqlite3", &url))?;
+        if !cache_exists {
+            populate_pool(&pool).await.context("populating newly created cache").or_warn();
+        };
         let pool = match pool_is_valid(&pool).await {
             Ok(()) => pool,
             Err(e) => {
