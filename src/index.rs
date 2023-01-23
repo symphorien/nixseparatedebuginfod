@@ -22,7 +22,7 @@ const N_WORKERS: usize = 8;
 #[derive(Clone)]
 /// A helper to examine all new store paths in parallel.
 pub struct StoreWatcher {
-    cache: &'static Cache,
+    cache: Cache,
     /// semaphore to prevent indexing too many store path at the same time
     ///
     /// this prevents too many open file errors
@@ -32,7 +32,7 @@ pub struct StoreWatcher {
 }
 
 impl StoreWatcher {
-    pub fn new(cache: &'static Cache) -> Self {
+    pub fn new(cache: Cache) -> Self {
         Self {
             cache,
             semaphore: Arc::new(Semaphore::new(N_WORKERS)),

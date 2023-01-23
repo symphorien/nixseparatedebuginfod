@@ -73,7 +73,7 @@ async fn unwrap_file<T: AsRef<std::path::Path>>(
 /// Start indexation, and wait for it to complete until timeout.
 ///
 /// Returns wether indexation is complete.
-async fn start_indexation_and_wait(watcher: &StoreWatcher, timeout: Duration) -> bool {
+async fn start_indexation_and_wait(watcher: StoreWatcher, timeout: Duration) -> bool {
     match watcher.maybe_index_new_paths().await {
         Err(e) => {
             tracing::warn!("cannot start registration of new store path: {:#}", e);
@@ -93,7 +93,7 @@ const INDEXING_TIMEOUT: Duration = Duration::from_secs(1);
 
 async fn get_debuginfo(
     Path(buildid): Path<String>,
-    State((cache, watcher)): State<(&'static Cache, &'static StoreWatcher)>,
+    State((cache, watcher)): State<(Cache, StoreWatcher)>,
 ) -> impl IntoResponse {
     let ready = start_indexation_and_wait(watcher, INDEXING_TIMEOUT).await;
     let res = cache.get_debuginfo(&buildid).await;
@@ -102,7 +102,7 @@ async fn get_debuginfo(
 
 async fn get_executable(
     Path(buildid): Path<String>,
-    State((cache, watcher)): State<(&'static Cache, &'static StoreWatcher)>,
+    State((cache, watcher)): State<(Cache, StoreWatcher)>,
 ) -> impl IntoResponse {
     let ready = start_indexation_and_wait(watcher, INDEXING_TIMEOUT).await;
     let res = cache.get_executable(&buildid).await;
@@ -112,7 +112,7 @@ async fn get_executable(
 async fn fetch_and_get_source(
     buildid: String,
     request: PathBuf,
-    cache: &'static Cache,
+    cache: Cache,
 ) -> anyhow::Result<Option<SourceLocation>> {
     let source = cache
         .get_source(&buildid)
@@ -168,12 +168,12 @@ async fn uncompress_archive_file_to_http_body(
 }
 async fn get_source(
     Path(param): Path<(String, String)>,
-    State((cache, watcher)): State<(&'static Cache, &'static StoreWatcher)>,
+    State((cache, watcher)): State<(Cache, StoreWatcher)>,
 ) -> impl IntoResponse {
     let ready = start_indexation_and_wait(watcher, INDEXING_TIMEOUT).await;
     let path: &str = &param.1;
     let request = PathBuf::from(path);
-    let sourcefile = fetch_and_get_source(param.0.to_owned(), request, &cache).await;
+    let sourcefile = fetch_and_get_source(param.0.to_owned(), request, cache).await;
     let response = match sourcefile {
         Ok(Some(SourceLocation::File(path))) => match tokio::fs::File::open(&path).await {
             Err(e) => Err((
@@ -227,9 +227,7 @@ async fn get_section(Path(_param): Path<(String, String)>) -> impl IntoResponse 
 
 pub async fn run_server(args: Options) -> anyhow::Result<ExitCode> {
     let cache = Cache::open().await.context("opening global cache")?;
-    let cache: &'static Cache = Box::leak(Box::new(cache));
-    let watcher = StoreWatcher::new(cache);
-    let watcher: &'static StoreWatcher = Box::leak(Box::new(watcher));
+    let watcher = StoreWatcher::new(cache.clone());
     if args.index_only {
         match watcher.maybe_index_new_paths().await? {
             None => (),

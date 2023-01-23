@@ -105,7 +105,10 @@ impl Cache {
             .await
             .with_context(|| format!("failed to connect to {} with sqlite3", &url))?;
         if !cache_exists {
-            populate_pool(&pool).await.context("populating newly created cache").or_warn();
+            populate_pool(&pool)
+                .await
+                .context("populating newly created cache")
+                .or_warn();
         };
         let pool = match pool_is_valid(&pool).await {
             Ok(()) => pool,
