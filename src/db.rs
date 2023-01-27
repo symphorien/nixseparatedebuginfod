@@ -2,6 +2,8 @@
 //
 // SPDX-License-Identifier: GPL-3.0-only
 
+//! Cache for buildid -> debuginfo as a sqlite database
+
 use anyhow::{bail, Context};
 use directories::ProjectDirs;
 use sha2::Digest;
@@ -9,7 +11,7 @@ use sqlx::{sqlite::SqlitePool, Row};
 
 use crate::log::ResultExt;
 
-/// Store path id
+/// id of the row of a store path in `/nix/var/nix/db/db.sqlite`
 pub type Id = u32;
 
 /// An entry stored in the cache.
@@ -19,19 +21,25 @@ pub type Id = u32;
 /// `source` is the store path of the source, either directory or archive.
 #[derive(Debug, Clone)]
 pub struct Entry {
+    /// elf buildid, in base64 as printed by readelf
     pub buildid: String,
+    /// store path of the stripped elf file
     pub executable: Option<String>,
+    /// store path of the separate debug info
     pub debuginfo: Option<String>,
+    /// store path of the source
     pub source: Option<String>,
 }
 
-/// A cache storing the executable and debuginfo location for each buildid.
+/// A cache storing the executable, debuginfo and source location for each buildid.
+///
+/// Cloning this cache returns a new [Cache] object referring the same sqlite db.
 #[derive(Clone)]
 pub struct Cache {
     /// A connection to a backing sqlite db.
     sqlite: SqlitePool,
 }
-/// The schema of the sqlite db backing `Cache`.
+/// The schema of the sqlite db backing [Cache].
 const SCHEMA: &'static str = include_str!("./schema.sql");
 
 fn get_schema_version() -> u32 {
@@ -197,7 +205,7 @@ impl Cache {
 
     /// Register information for a buildid
     ///
-    /// Only one of the each entry fields is stored for each buildid, if register is called serval times
+    /// Only one of the each entry fields is stored for each buildid, if register is called several times
     /// for a single buildid, only the latest `Some` provided one is retained.
     pub async fn register(&self, entries: &[Entry]) -> anyhow::Result<()> {
         if entries.len() == 0 {

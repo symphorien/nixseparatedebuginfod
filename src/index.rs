@@ -2,6 +2,8 @@
 //
 // SPDX-License-Identifier: GPL-3.0-only
 
+//! Utilities to scan new store paths for buildids as they appear and populate the cache with them
+
 use crate::db::{Cache, Entry, Id};
 use crate::log::ResultExt;
 use crate::store::index_store_path;
@@ -16,11 +18,15 @@ use tokio::sync::Mutex;
 use tokio::sync::{mpsc::Sender, Semaphore};
 use tokio::task::JoinHandle;
 
+/// enqueue indexing of this many store paths at the same time
 const BATCH_SIZE: usize = 100;
+/// index at most thie many store paths at the same time
 const N_WORKERS: usize = 8;
 
 #[derive(Clone)]
 /// A helper to examine all new store paths in parallel.
+///
+/// Cloning this structure returns a structure referring to the same internal state.
 pub struct StoreWatcher {
     cache: Cache,
     /// semaphore to prevent indexing too many store path at the same time
@@ -32,6 +38,9 @@ pub struct StoreWatcher {
 }
 
 impl StoreWatcher {
+    /// Creates a [`StoreWatcher`] that populates the specified cache.
+    ///
+    /// To start it call [StoreWatcher::watch_store].
     pub fn new(cache: Cache) -> Self {
         Self {
             cache,
@@ -200,7 +209,9 @@ impl StoreWatcher {
         }
     }
 
-    /// starts a task that periodically indexes new store paths in the store
+    /// starts a task that periodically indexes new store paths in the store.
+    ///
+    /// Returns immediately.
     pub fn watch_store(&self) {
         let self_clone = self.clone();
         tokio::spawn(async move {

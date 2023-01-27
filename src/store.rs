@@ -2,6 +2,8 @@
 //
 // SPDX-License-Identifier: GPL-3.0-only
 
+//! Lower level utilities to query the store.
+
 use crate::db::Entry;
 use crate::log::ResultExt;
 use anyhow::Context;
@@ -15,6 +17,10 @@ use std::{
 };
 use tokio::sync::mpsc::Sender;
 
+/// attempts have this store path exist in the store
+///
+/// if the path already exists, do nothing
+/// otherwise runs `nix-store --realise` to download it from a binary cache.
 pub async fn realise(path: &Path) -> anyhow::Result<()> {
     use tokio::fs::metadata;
     use tokio::process::Command;

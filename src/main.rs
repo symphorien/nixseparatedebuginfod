@@ -2,15 +2,26 @@
 //
 // SPDX-License-Identifier: GPL-3.0-only
 
+#![warn(missing_docs)]
+
+//! A server implementing the debuginfod protocol for nix packages.
+//!
+//! A [db::Cache] stores the buildid -> (source, debuginfo, executable) mapping.
+//!
+//! A [index::StoreWatcher] waits for new store paths to appears, and walks them
+//! to populate the [db::Cache].
+//!
+//! Finally the [server] module provides server that serves the populated [db::Cache].
+
 use std::{net::SocketAddr, process::ExitCode};
 
 use clap::Parser;
 
-mod db;
-mod index;
-mod log;
-mod server;
-mod store;
+pub mod db;
+pub mod index;
+pub mod log;
+pub mod server;
+pub mod store;
 
 /// A debuginfod implementation that fetches debuginfo and sources from nix binary caches
 #[derive(Parser, Debug)]

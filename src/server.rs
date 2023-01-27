@@ -2,6 +2,11 @@
 //
 // SPDX-License-Identifier: GPL-3.0-only
 
+//! An http server serving the content of [Cache]
+//!
+//! References:
+//! Protocol: <https://www.mankier.com/8/debuginfod#Webapi>
+
 use anyhow::Context;
 use axum::body::StreamBody;
 use axum::extract::{Path, State};
@@ -26,6 +31,12 @@ use crate::Options;
 /// 503 Not Available also works, but only for the section request
 const NON_CACHING_ERROR_STATUS: StatusCode = StatusCode::NOT_ACCEPTABLE;
 
+/// Serve the content of this file, or an appropriate error.
+///
+/// Attempts to substitute the file if necessary.
+///
+/// `ready` should be true if indexation is currently complete. If it is false,
+/// error codes are tuned to prevent the client from caching the answer.
 async fn unwrap_file<T: AsRef<std::path::Path>>(
     path: anyhow::Result<Option<T>>,
     ready: bool,
@@ -89,6 +100,7 @@ async fn start_indexation_and_wait(watcher: StoreWatcher, timeout: Duration) -> 
     }
 }
 
+/// How long to wait for indexation to complete before serving the cache
 const INDEXING_TIMEOUT: Duration = Duration::from_secs(1);
 
 async fn get_debuginfo(
@@ -109,6 +121,9 @@ async fn get_executable(
     unwrap_file(res, ready).await
 }
 
+/// queries the cache for a source file `request` corresponding to `buildid`.
+///
+/// may download the source if required, and returns where the requested file is on disk.
 async fn fetch_and_get_source(
     buildid: String,
     request: PathBuf,
@@ -132,6 +147,7 @@ async fn fetch_and_get_source(
     Ok(file)
 }
 
+/// reads a file inside an archive into an http response
 async fn uncompress_archive_file_to_http_body(
     archive: &std::path::Path,
     member: &std::path::Path,
@@ -225,6 +241,8 @@ async fn get_section(Path(_param): Path<(String, String)>) -> impl IntoResponse 
     StatusCode::NOT_IMPLEMENTED
 }
 
+/// If option `-i` is specified, index and exit. Otherwise starts indexation and runs the
+/// debuginfod server.
 pub async fn run_server(args: Options) -> anyhow::Result<ExitCode> {
     let cache = Cache::open().await.context("opening global cache")?;
     let watcher = StoreWatcher::new(cache.clone());
