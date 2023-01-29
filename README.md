@@ -121,8 +121,9 @@ Downloading 0.01 MB source file /build/source/src/nix/main.cc
 ```
 
 ## Limitations
-- Only provides debug symbols for derivations built with `separateDebugInfo` set to `true`, obviously.
-- Only finds the debug outputs of store paths with `.drv` file present on the system or substitutable. This should be the case in most cases, but not if you `nix-store --realise` something manually from hydra.
+- `nixseparatedebuginfod` only provides debug symbols for derivations built with `separateDebugInfo` set to `true`, obviously.
+- GDB only queries source files to `debuginfod` servers if the debug symbols were also provided via `debuginfod`, so `nixseparatedebuginfod` does not provide source for store paths with non-separate debug symbols (e.g. produced with `enableDebugging`).
+- `nixseparatedebuginfod` only finds the debug outputs of store paths with `.drv` file present on the system or substitutable. This should be the case in most cases, but not if you `nix-store --realise` a store path manually from hydra.
 - If a derivation patches a source file before compiling it, `nixseparatedebuginfod` will serve the unpatched source file straight from the `src` attribute of the derivation.
 - The `section` endpoint of the `debuginfod` protocol is not implemented. (If you know of some client that uses it, tell me).
 
