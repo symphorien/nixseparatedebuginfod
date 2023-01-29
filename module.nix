@@ -6,6 +6,7 @@
 let
   cfg = config.services.nixseparatedebuginfod;
   url = "127.0.0.1:${toString cfg.port}";
+  maybeAdd = x: list: if builtins.elem x list then list else list ++ [ x ];
 in
 {
   options = {
@@ -40,7 +41,7 @@ in
       (self: super: {
         nixseparatedebuginfod = super.callPackage ./nixseparatedebuginfod.nix { };
         gdb-debuginfod = (super.gdb.override { enableDebuginfod = true; }).overrideAttrs (old: {
-          configureFlags = old.configureFlags ++ [ "--with-system-gdbinit=/etc/gdbinit" ];
+          configureFlags = maybeAdd "--with-system-gdbinit=/etc/gdb/gdbinit" old.configureFlags;
         });
       })
     ];
@@ -49,7 +50,7 @@ in
       (lib.hiPrio pkgs.gdb-debuginfod)
     ];
 
-    environment.etc.gdbinit.text = "set debuginfod enabled on";
+    environment.etc."gdb/gdbinit".text = "set debuginfod enabled on";
 
   };
 }
