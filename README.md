@@ -17,8 +17,8 @@ Most software in `nixpkgs` is stripped, so hard to debug. But some key packages 
 ### On NixOS
 
 A NixOS module is provided for your convenience in `./module.nix`.
-This module provides a version of `gdb` compiled with `debuginfod` support, so you should uninstall `gdb` from other source (`nix-env`, `home-manager`).
-As the module sets an environment variable, you need to log out/lo gin again or reboot for it to work.
+This module provides a version of `gdb` compiled with `debuginfod` support, so you should uninstall `gdb` from other sources (`nix-env`, `home-manager`).
+As the module sets an environment variable, you need to log out/log in again or reboot for it to work.
 
 #### Pure stable nix
 
