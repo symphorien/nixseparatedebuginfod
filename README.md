@@ -20,7 +20,7 @@ A NixOS module is provided for your convenience in `./module.nix`.
 This module provides a version of `gdb` compiled with `debuginfod` support, so you should uninstall `gdb` from other source (`nix-env`, `home-manager`).
 As the module sets an environment variable, you need to log out/lo gin again or reboot for it to work.
 
-#### Without flakes
+#### Pure stable nix
 
 Add the module to the `imports` section of `/etc/nixos/configuration.nix`:
 ```nix
@@ -35,10 +35,20 @@ Add the module to the `imports` section of `/etc/nixos/configuration.nix`:
 ```
 (adapt the revision and sha256 to a recent one).
 
+#### With [niv](https://github.com/nmattia/niv)
+
+Run `niv add github symphorien/nixseparatedebuginfod` and add to the `imports` section of `/etc/nixos/configuration.nix`:
+```nix
+{config, pkgs, lib, ...}: {
+  imports = [
+    ((import nix/sources.nix {}).nixseparatedebuginfod + "/module.nix")
+  ];
+}
+```
+
 #### With flakes
 
-Flakes make it easier to update to recent commits. Include the module
-to your `/etc/nixos/flake.nix` as in this example:
+If you use flakes, modify your `/etc/nixos/flake.nix` as in this example:
 
 ```nix
 {
