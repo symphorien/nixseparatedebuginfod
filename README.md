@@ -83,13 +83,22 @@ If you use flakes, modify your `/etc/nixos/flake.nix` as in this example:
 - Run `nixseparatedebuginfod`.
 - Set the environment variable `DEBUGINFOD_URLS` to `http://127.0.0.1:1949`
 
-Software with `debuginfod` support should now use `nixseparatedebuginfod`. Unfortunately `gdb` is not compiled with `debuginfod` support in `nixpkgs` by default, so some additional steps are needed:
+Software with `debuginfod` support should now use `nixseparatedebuginfod`. 
+
+#### `gdb`
+Unfortunately `gdb` is not compiled with `debuginfod` support in `nixpkgs` by default, so some additional steps are needed:
 - In `/etc/nixos/configuration.nix` or `~/.config/nixpkgs/home.nix` replace the `pkgs.gdb` entry in `home.packages` or `environment.systemPackages` by `(gdb.override { enableDebuginfod = true })`. Don't use an overlay, as `gdb` is a mass rebuild.
 - In `~/.gdbinit` put
 ```
 set debuginfod enabled on
 ```
 otherwise, it will ask for confirmation every time.
+
+#### `valgrind`
+
+`valgrind` needs `debuginfod-find` on `$PATH` to use `nixseparatedebuginfod`.
+Add `(lib.getBin (pkgs.elfutils.override { enableDebuginfod = true; }))` to
+`environment.systemPackages` or `home.packages`.
 
 ### Check that it works
 

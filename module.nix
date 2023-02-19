@@ -48,6 +48,8 @@ in
 
     environment.systemPackages = [
       (lib.hiPrio pkgs.gdb-debuginfod)
+      # valgrind support requires debuginfod-find on PATH
+      (lib.hiPrio (lib.getBin (pkgs.elfutils.override { enableDebuginfod = true; })))
     ];
 
     environment.etc."gdb/gdbinit".text = "set debuginfod enabled on";
