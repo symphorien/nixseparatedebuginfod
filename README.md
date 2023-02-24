@@ -54,10 +54,7 @@ If you use flakes, modify your `/etc/nixos/flake.nix` as in this example:
 {
     inputs = {
         # ...
-        nixseparatedebuginfod = {
-            url = "github:symphorien/nixseparatedebuginfod";
-            flake = false;
-        };
+        nixseparatedebuginfod.url = "github:symphorien/nixseparatedebuginfod";
     };
     outputs = {
         nixpkgs,
@@ -68,7 +65,7 @@ If you use flakes, modify your `/etc/nixos/flake.nix` as in this example:
         system = "x86_64-linux";
         modules = [
             # ...
-            (import (nixseparatedebuginfod.outPath + "/module.nix"))
+            nixseparatedebuginfod.nixosModules.default
         ];
       };
     };
