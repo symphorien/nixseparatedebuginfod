@@ -41,7 +41,7 @@ in
       (self: super: {
         nixseparatedebuginfod = super.callPackage ./nixseparatedebuginfod.nix { };
         gdb-debuginfod = (super.gdb.override { enableDebuginfod = true; }).overrideAttrs (old: {
-          configureFlags = maybeAdd "--with-system-gdbinit=/etc/gdb/gdbinit" old.configureFlags;
+          configureFlags = maybeAdd "--with-system-gdbinit-dir=/etc/gdb/gdbinit.d" old.configureFlags;
         });
       })
     ];
@@ -52,7 +52,7 @@ in
       (lib.hiPrio (lib.getBin (pkgs.elfutils.override { enableDebuginfod = true; })))
     ];
 
-    environment.etc."gdb/gdbinit".text = "set debuginfod enabled on";
+    environment.etc."gdb/gdbinit.d/nixseparatedebuginfod.gdb".text = "set debuginfod enabled on";
 
   };
 }
