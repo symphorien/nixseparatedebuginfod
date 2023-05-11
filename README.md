@@ -96,13 +96,12 @@ If you use flakes, modify your `/etc/nixos/flake.nix` as in this example:
 Software with `debuginfod` support should now use `nixseparatedebuginfod`. 
 
 #### `gdb`
-Unfortunately `gdb` is not compiled with `debuginfod` support in `nixpkgs` by default, so some additional steps are needed:
-- In `/etc/nixos/configuration.nix` or `~/.config/nixpkgs/home.nix` replace the `pkgs.gdb` entry in `home.packages` or `environment.systemPackages` by `(gdb.override { enableDebuginfod = true })`. Don't use an overlay, as `gdb` is a mass rebuild.
 - In `~/.gdbinit` put
 ```
 set debuginfod enabled on
 ```
 otherwise, it will ask for confirmation every time.
+- With `nixpkgs` 22.11 or earlier, `gdb` is not compiled with `debuginfod` support in `nixpkgs` by default. To install a suitable version of `gdb`, replace the `pkgs.gdb` entry in `home.packages` or `environment.systemPackages` by `(gdb.override { enableDebuginfod = true })` in `/etc/nixos/configuration.nix` or `~/.config/nixpkgs/home.nix`. Don't use an overlay, as `gdb` is a mass rebuild.
 
 #### `valgrind`
 
