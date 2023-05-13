@@ -85,7 +85,9 @@ If you use flakes, modify your `/etc/nixos/flake.nix` as in this example:
 }
 ```
 
-### Manual installation
+### Manual installation without the module
+
+If you cannot use the provided NixOS module, here are steps to set up `nixseparatedebuginfod` manually.
 
 - Compile `nixseparatedebuginfod`
   - `nix-build ./default.nix`, or
@@ -93,7 +95,7 @@ If you use flakes, modify your `/etc/nixos/flake.nix` as in this example:
 - Run `nixseparatedebuginfod`.
 - Set the environment variable `DEBUGINFOD_URLS` to `http://127.0.0.1:1949`
 
-Software with `debuginfod` support should now use `nixseparatedebuginfod`. 
+Most software with `debuginfod` support should now use `nixseparatedebuginfod`. Some software needs to be configured further:
 
 #### `gdb`
 - In `~/.gdbinit` put
