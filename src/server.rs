@@ -21,8 +21,8 @@ use std::time::Duration;
 use tokio_util::io::ReaderStream;
 
 use crate::db::Cache;
-use crate::index::StoreWatcher;
-use crate::store::{get_file_for_source, realise, SourceLocation};
+use crate::index::{index_store_path_online, StoreWatcher};
+use crate::store::{get_file_for_source, get_store_path, realise, SourceLocation};
 use crate::Options;
 
 /// The only status code in the client code of debuginfod in elfutils that prevents
@@ -100,6 +100,24 @@ async fn start_indexation_and_wait(watcher: StoreWatcher, timeout: Duration) -> 
     }
 }
 
+/// Reindex harder.
+///
+/// If the .drv file is not in the store, automatic indexation will find the executable but not
+/// the debuginfo and source. We can attempt to download this drv file during a second
+/// indexation attempt.
+async fn maybe_reindex_by_build_id(cache: &Cache, buildid: &str) -> anyhow::Result<()> {
+    let Some(exe) = cache.get_executable(buildid).await.with_context(|| format!("getting executable of {} from cache", buildid))? else { return Ok(()) };
+    tracing::debug!("reindexing {}", &exe);
+    let exe = PathBuf::from(exe);
+    let Some(storepath) = get_store_path(exe.as_path()) else {
+        anyhow::bail!("executable {} for buildid {} is not a store path", exe.display(), buildid);
+    };
+    index_store_path_online(cache, storepath)
+        .await
+        .with_context(|| format!("indexing {} online", exe.display()))?;
+    Ok(())
+}
+
 /// How long to wait for indexation to complete before serving the cache
 const INDEXING_TIMEOUT: Duration = Duration::from_secs(1);
 
@@ -109,6 +127,16 @@ async fn get_debuginfo(
 ) -> impl IntoResponse {
     let ready = start_indexation_and_wait(watcher, INDEXING_TIMEOUT).await;
     let res = cache.get_debuginfo(&buildid).await;
+    let res = match res {
+        Ok(None) => {
+            // try again harder
+            match maybe_reindex_by_build_id(&cache, &buildid).await {
+                Ok(()) => cache.get_debuginfo(&buildid).await,
+                Err(e) => Err(e),
+            }
+        }
+        res => res,
+    };
     unwrap_file(res, ready).await
 }
 
@@ -129,10 +157,18 @@ async fn fetch_and_get_source(
     request: PathBuf,
     cache: Cache,
 ) -> anyhow::Result<Option<SourceLocation>> {
-    let source = cache
-        .get_source(&buildid)
-        .await
-        .with_context(|| format!("getting source of {} from cache", &buildid))?;
+    let source = cache.get_source(&buildid).await;
+    let source = match source {
+        Ok(None) => {
+            // try again harder
+            match maybe_reindex_by_build_id(&cache, &buildid).await {
+                Ok(()) => cache.get_source(&buildid).await,
+                Err(e) => Err(e),
+            }
+        }
+        source => source,
+    };
+    let source = source.with_context(|| format!("getting source of {} from cache", &buildid))?;
     let source = match source {
         None => return Ok(None),
         Some(x) => PathBuf::from(x),

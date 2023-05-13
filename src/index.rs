@@ -6,12 +6,12 @@
 
 use crate::db::{Cache, Entry, Id};
 use crate::log::ResultExt;
-use crate::store::index_store_path;
+use crate::store::{get_store_path, index_store_path};
 use anyhow::Context;
 use futures_util::{future::join_all, stream::FuturesOrdered, FutureExt, StreamExt};
 use sqlx::sqlite::SqliteConnectOptions;
 use sqlx::{ConnectOptions, Connection, Row};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::Mutex;
@@ -102,7 +102,7 @@ impl StoreWatcher {
             .await
             .expect("closed semaphore");
         tokio::task::spawn_blocking(move || {
-            index_store_path(path.as_path(), sendto);
+            index_store_path(path.as_path(), sendto, true);
             drop(permit);
         })
         .await
@@ -259,12 +259,12 @@ async fn get_new_store_path_batch(from_id: Id) -> anyhow::Result<(Vec<PathBuf>, 
     let mut max_id = 0;
     for row in rows {
         let path: &str = row.try_get("path").context("parsing path in nix db")?;
-        if !path.starts_with("/nix/store") || path.chars().filter(|&x| x == '/').count() != 3 {
+        let Some(path) = get_store_path(Path::new(path)) else {
             anyhow::bail!(
                 "read corrupted stuff from nix db: {}, concurrent write?",
                 path
             );
-        }
+        };
         paths.push(PathBuf::from(path));
         let id: Id = row.try_get("id").context("parsing id in nix db")?;
         max_id = id.max(max_id);
@@ -275,4 +275,30 @@ async fn get_new_store_path_batch(from_id: Id) -> anyhow::Result<(Vec<PathBuf>, 
         anyhow::bail!("read paths with id == 0...");
     }
     Ok((paths, max_id + 1))
+}
+
+/// Index this path, but harder than automatic indexation
+///
+/// Specifically, this is allowed to download the .drv file from a cache.
+pub async fn index_store_path_online(cache: &Cache, path: &Path) -> anyhow::Result<()> {
+    let (tx, mut rx) = tokio::sync::mpsc::channel(BATCH_SIZE);
+    let path = path.to_path_buf();
+    let handle = tokio::task::spawn_blocking(move || index_store_path(&path, tx, false));
+    let mut batch = Vec::new();
+    while let Some(entry) = rx.recv().await {
+        batch.push(entry);
+        if batch.len() > BATCH_SIZE {
+            cache
+                .register(&batch)
+                .await
+                .context("registering new entries")?;
+            batch.clear();
+        }
+    }
+    cache
+        .register(&batch)
+        .await
+        .context("registering new entries")?;
+    handle.await?;
+    Ok(())
 }
