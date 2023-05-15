@@ -16,8 +16,12 @@ Most software in `nixpkgs` is stripped, so hard to debug. But some key packages 
 
 ### On NixOS
 
-A NixOS module is provided for your convenience in `./module.nix`.
-This module provides a version of `gdb` compiled with `debuginfod` support, so you should uninstall `gdb` from other sources (`nix-env`, `home-manager`).
+A NixOS module is provided for your convenience in `./module.nix`. It provides the following main option:
+```nix
+services.nixseparatedebuginfod.enable = true;
+```
+
+This option installs a version of `gdb` compiled with `debuginfod` support, so you should uninstall `gdb` from other sources (`nix-env`, `home-manager`).
 As the module sets an environment variable, you need to log out/log in again or reboot for it to work.
 
 #### Pure stable nix
@@ -31,6 +35,9 @@ Add the module to the `imports` section of `/etc/nixos/configuration.nix`:
       sha256 = "sha256:1jbkv9mg11bcx3gg13m9d1jmg4vim7prny7bqsvlx9f78142qrlw";
     }) + "/module.nix")
   ];
+  config = {
+    services.nixseparatedebuginfod.enable = true;
+  };
 }
 ```
 (adapt the revision and sha256 to a recent one).
@@ -43,6 +50,9 @@ Run `niv add github symphorien/nixseparatedebuginfod` and add to the `imports` s
   imports = [
     ((import nix/sources.nix {}).nixseparatedebuginfod + "/module.nix")
   ];
+  config = {
+    services.nixseparatedebuginfod.enable = true;
+  };
 }
 ```
 
@@ -67,12 +77,17 @@ If you use flakes, modify your `/etc/nixos/flake.nix` as in this example:
             # ...
             nixseparatedebuginfod.nixosModules.default
         ];
+        config = {
+          services.nixseparatedebuginfod.enable = true;
+        };
       };
     };
 }
 ```
 
-### Manual installation
+### Manual installation without the module
+
+If you cannot use the provided NixOS module, here are steps to set up `nixseparatedebuginfod` manually.
 
 - Compile `nixseparatedebuginfod`
   - `nix-build ./default.nix`, or
@@ -80,16 +95,15 @@ If you use flakes, modify your `/etc/nixos/flake.nix` as in this example:
 - Run `nixseparatedebuginfod`.
 - Set the environment variable `DEBUGINFOD_URLS` to `http://127.0.0.1:1949`
 
-Software with `debuginfod` support should now use `nixseparatedebuginfod`. 
+Most software with `debuginfod` support should now use `nixseparatedebuginfod`. Some software needs to be configured further:
 
 #### `gdb`
-Unfortunately `gdb` is not compiled with `debuginfod` support in `nixpkgs` by default, so some additional steps are needed:
-- In `/etc/nixos/configuration.nix` or `~/.config/nixpkgs/home.nix` replace the `pkgs.gdb` entry in `home.packages` or `environment.systemPackages` by `(gdb.override { enableDebuginfod = true })`. Don't use an overlay, as `gdb` is a mass rebuild.
 - In `~/.gdbinit` put
 ```
 set debuginfod enabled on
 ```
 otherwise, it will ask for confirmation every time.
+- With `nixpkgs` 22.11 or earlier, `gdb` is not compiled with `debuginfod` support in `nixpkgs` by default. To install a suitable version of `gdb`, replace the `pkgs.gdb` entry in `home.packages` or `environment.systemPackages` by `(gdb.override { enableDebuginfod = true })` in `/etc/nixos/configuration.nix` or `~/.config/nixpkgs/home.nix`. Don't use an overlay, as `gdb` is a mass rebuild.
 
 #### `valgrind`
 
