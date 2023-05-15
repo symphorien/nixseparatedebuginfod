@@ -37,8 +37,34 @@ pub async fn realise(path: &Path) -> anyhow::Result<()> {
     anyhow::bail!("nix-store --realise {} failed", path.display());
 }
 
+/// downloads a .drv file if necessary
+///
+/// if the path already exists, do nothing
+/// otherwise runs `nix-store --realise` to download it from a binary cache.
+fn download_drv(path: &Path) -> anyhow::Result<()> {
+    use std::fs::metadata;
+    use std::process::Command;
+    if metadata(path).is_ok() {
+        return Ok(());
+    };
+    let mut command = Command::new("nix-store");
+    command.arg("--realise");
+    // nix-store --realise foo.drv downloads the drv and its default output
+    // we use the following trick to only download the drv: we ask for a non existing output
+    // as the narinfo does not give the list of outputs, nix has to download the drv first, and
+    // then fails to download the output
+    command.arg(path.with_extension("drv!outputdoesn0tex1st"));
+    tracing::info!("Running {:?}", &command);
+    let _ = command.status();
+    if metadata(path).is_ok() {
+        return Ok(());
+    };
+    anyhow::bail!("nix-store --realise {} failed", path.display());
+}
+
 /// Walks a store path and attempts to register everything that has a buildid in it.
-pub fn index_store_path(storepath: &Path, sendto: Sender<Entry>) {
+/// If offline is false, may try to download the .drv file from cache.
+pub fn index_store_path(storepath: &Path, sendto: Sender<Entry>, offline: bool) {
     let span = tracing::info_span!("indexing", storepath=%storepath.display()).entered();
     if storepath
         .file_name()
@@ -58,6 +84,17 @@ pub fn index_store_path(storepath: &Path, sendto: Sender<Entry>) {
         }
         Ok(None) => (None, None),
         Ok(Some(deriver)) => {
+            if !offline && !deriver.is_file() {
+                download_drv(deriver.as_ref())
+                    .with_context(|| {
+                        format!(
+                            "downloading deriver {} of {}",
+                            deriver.display(),
+                            storepath.display()
+                        )
+                    })
+                    .or_warn();
+            }
             if deriver.is_file() {
                 let source = match get_source(deriver.as_path()) {
                     Err(e) => {
@@ -457,4 +494,29 @@ pub fn get_file_for_source(
     }
     let (winner, _) = candidates_ref.iter().next().unwrap();
     Ok(Some(candidates[*winner].clone()))
+}
+
+/// Turns a path in the store as its topmost parent in /nix/store
+pub fn get_store_path(path: &Path) -> Option<&Path> {
+    let mut ancestors = path.ancestors().peekable();
+    while let Some(a) = ancestors.next() {
+        match ancestors.peek() {
+            Some(p) if p.as_os_str() == "/nix/store" => return Some(a),
+            _ => (),
+        }
+    }
+    return None;
+}
+
+#[test]
+fn test_get_store_path() {
+    assert_eq!(
+        get_store_path(Path::new("/nix/store/foo")).unwrap(),
+        Path::new("/nix/store/foo")
+    );
+    assert_eq!(
+        get_store_path(Path::new("/nix/store/foo/bar")).unwrap(),
+        Path::new("/nix/store/foo")
+    );
+    assert_eq!(get_store_path(Path::new("eq")), None);
 }
