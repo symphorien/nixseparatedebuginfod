@@ -73,7 +73,7 @@ fn suicide(cmd: &mut Command) {
 
 /// Finds a file by name in the tests folder of the repo
 fn fixture(name: &str) -> PathBuf {
-    let mut root = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap());
+    let mut root = std::env::current_dir().unwrap();
     root.push("tests");
     root.push(name);
     root
