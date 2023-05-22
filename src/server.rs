@@ -106,11 +106,23 @@ async fn start_indexation_and_wait(watcher: StoreWatcher, timeout: Duration) -> 
 /// the debuginfo and source. We can attempt to download this drv file during a second
 /// indexation attempt.
 async fn maybe_reindex_by_build_id(cache: &Cache, buildid: &str) -> anyhow::Result<()> {
-    let Some(exe) = cache.get_executable(buildid).await.with_context(|| format!("getting executable of {} from cache", buildid))? else { return Ok(()) };
+    let exe = match cache
+        .get_executable(buildid)
+        .await
+        .with_context(|| format!("getting executable of {} from cache", buildid))?
+    {
+        Some(exe) => exe,
+        None => return Ok(()),
+    };
     tracing::debug!("reindexing {}", &exe);
     let exe = PathBuf::from(exe);
-    let Some(storepath) = get_store_path(exe.as_path()) else {
-        anyhow::bail!("executable {} for buildid {} is not a store path", exe.display(), buildid);
+    let storepath = match get_store_path(exe.as_path()) {
+        Some(storepath) => storepath,
+        None => anyhow::bail!(
+            "executable {} for buildid {} is not a store path",
+            exe.display(),
+            buildid
+        ),
     };
     index_store_path_online(cache, storepath)
         .await

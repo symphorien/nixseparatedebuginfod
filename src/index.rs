@@ -259,11 +259,12 @@ async fn get_new_store_path_batch(from_id: Id) -> anyhow::Result<(Vec<PathBuf>, 
     let mut max_id = 0;
     for row in rows {
         let path: &str = row.try_get("path").context("parsing path in nix db")?;
-        let Some(path) = get_store_path(Path::new(path)) else {
-            anyhow::bail!(
+        let path = match get_store_path(Path::new(path)) {
+            Some(path) => path,
+            None => anyhow::bail!(
                 "read corrupted stuff from nix db: {}, concurrent write?",
                 path
-            );
+            ),
         };
         paths.push(PathBuf::from(path));
         let id: Id = row.try_get("id").context("parsing id in nix db")?;
