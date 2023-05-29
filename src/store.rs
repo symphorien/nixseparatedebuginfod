@@ -399,7 +399,7 @@ impl SourceLocation {
 ///
 /// If the file is not an executable returns Ok(None).
 /// Errors are only for errors returned from the fs.
-fn get_buildid(path: &Path) -> anyhow::Result<Option<String>> {
+pub fn get_buildid(path: &Path) -> anyhow::Result<Option<String>> {
     let file = std::fs::File::open(path)
         .with_context(|| format!("opening {} to get its buildid", path.display()))?;
     let reader = object::read::ReadCache::new(file);
