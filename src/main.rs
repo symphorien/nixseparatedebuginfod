@@ -17,11 +17,13 @@ use std::{net::SocketAddr, process::ExitCode};
 
 use clap::Parser;
 
+pub mod config;
 pub mod db;
 pub mod index;
 pub mod log;
 pub mod server;
 pub mod store;
+pub mod substituter;
 
 /// A debuginfod implementation that fetches debuginfo and sources from nix binary caches
 #[derive(Parser, Debug)]

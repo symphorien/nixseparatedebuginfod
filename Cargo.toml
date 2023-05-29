@@ -31,10 +31,17 @@ tower-http = { version = "0.3.5", features = [ "trace" ] }
 tracing = "0.1.37"
 tracing-subscriber = "0.3.16"
 http = "0.2.8"
-
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1"
+tempfile = "3"
+async-trait = "0.1"
+async-recursion = "1"
+axum-macros = "0.3.7"
+reqwest = { version = "0.11.18", features = [ "stream" ] }
 
 [dev-dependencies]
 assert_cmd = "2"
-tempfile = "3"
 rand = "0.8"
 prctl = "1"
+maplit = "1"
+reqwest = { version = "0.11.18", features = [ "blocking" ] }

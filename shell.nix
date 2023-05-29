@@ -10,6 +10,7 @@ mkShell {
     rustfmt
     rust-analyzer
     sqlite
+    openssl
     (gdb.override { enableDebuginfod = true; })
     pkg-config
     reuse
