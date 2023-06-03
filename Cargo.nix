@@ -191,6 +191,35 @@ rec {
           "color-auto" = [ "color" "concolor?/auto" ];
         };
       };
+      "async-recursion" = rec {
+        crateName = "async-recursion";
+        version = "1.0.4";
+        edition = "2018";
+        sha256 = "1fhwz7jqgsakbjsr2nrsvgs245l1m5dkzir6f9fxw4ngwrywx5qf";
+        procMacro = true;
+        authors = [
+          "Robert Usher <266585+dcchut@users.noreply.github.com>"
+        ];
+        dependencies = [
+          {
+            name = "proc-macro2";
+            packageId = "proc-macro2";
+            usesDefaultFeatures = false;
+          }
+          {
+            name = "quote";
+            packageId = "quote";
+            usesDefaultFeatures = false;
+          }
+          {
+            name = "syn";
+            packageId = "syn 2.0.18";
+            usesDefaultFeatures = false;
+            features = [ "full" "parsing" "printing" "proc-macro" "clone-impls" ];
+          }
+        ];
+
+      };
       "async-trait" = rec {
         crateName = "async-trait";
         version = "0.1.62";
@@ -211,7 +240,7 @@ rec {
           }
           {
             name = "syn";
-            packageId = "syn";
+            packageId = "syn 1.0.107";
             features = [ "full" "visit-mut" ];
           }
         ];
@@ -714,7 +743,7 @@ rec {
           }
           {
             name = "syn";
-            packageId = "syn";
+            packageId = "syn 1.0.107";
             features = [ "full" ];
           }
         ];
@@ -998,7 +1027,7 @@ rec {
           }
           {
             name = "syn";
-            packageId = "syn";
+            packageId = "syn 1.0.107";
           }
         ];
         features = {
@@ -1501,7 +1530,7 @@ rec {
           }
           {
             name = "syn";
-            packageId = "syn";
+            packageId = "syn 1.0.107";
             features = [ "full" ];
           }
         ];
@@ -2515,6 +2544,14 @@ rec {
             packageId = "anyhow";
           }
           {
+            name = "async-recursion";
+            packageId = "async-recursion";
+          }
+          {
+            name = "async-trait";
+            packageId = "async-trait";
+          }
+          {
             name = "axum";
             packageId = "axum";
           }
@@ -2553,6 +2590,15 @@ rec {
             packageId = "once_cell";
           }
           {
+            name = "serde";
+            packageId = "serde";
+            features = [ "derive" ];
+          }
+          {
+            name = "serde_json";
+            packageId = "serde_json";
+          }
+          {
             name = "sha2";
             packageId = "sha2";
           }
@@ -2560,6 +2606,10 @@ rec {
             name = "sqlx";
             packageId = "sqlx";
             features = [ "runtime-actix-rustls" "sqlite" ];
+          }
+          {
+            name = "tempfile";
+            packageId = "tempfile";
           }
           {
             name = "tokio";
@@ -2601,10 +2651,6 @@ rec {
           {
             name = "rand";
             packageId = "rand";
-          }
-          {
-            name = "tempfile";
-            packageId = "tempfile";
           }
         ];
 
@@ -2926,7 +2972,7 @@ rec {
           }
           {
             name = "syn";
-            packageId = "syn";
+            packageId = "syn 1.0.107";
             features = [ "full" "visit-mut" ];
           }
         ];
@@ -3080,7 +3126,7 @@ rec {
           }
           {
             name = "syn";
-            packageId = "syn";
+            packageId = "syn 1.0.107";
             optional = true;
             usesDefaultFeatures = false;
           }
@@ -3127,9 +3173,9 @@ rec {
       };
       "proc-macro2" = rec {
         crateName = "proc-macro2";
-        version = "1.0.50";
+        version = "1.0.59";
         edition = "2018";
-        sha256 = "1qmsy8372anynndlfa0qig5y73gjnyvxldsrxs52vbygx9xxbxvf";
+        sha256 = "06s5yglnz3h3x53rpp7az7ka6j169sg33al1nxhcc4xlhs5s3v3a";
         authors = [
           "David Tolnay <dtolnay@gmail.com>"
           "Alex Crichton <alex@alexcrichton.com>"
@@ -3147,9 +3193,9 @@ rec {
       };
       "quote" = rec {
         crateName = "quote";
-        version = "1.0.23";
+        version = "1.0.28";
         edition = "2018";
-        sha256 = "0ywwzw5xfwwgq62ihp4fbjbfdjb3ilss2vh3fka18ai59lvdhml8";
+        sha256 = "122lh886x0p5xh87015wbknl0dfimsjg273g00cxzn6zxb3vk6hv";
         authors = [
           "David Tolnay <dtolnay@gmail.com>"
         ];
@@ -3672,12 +3718,53 @@ rec {
           "Erick Tryzelaar <erick.tryzelaar@gmail.com>"
           "David Tolnay <dtolnay@gmail.com>"
         ];
+        dependencies = [
+          {
+            name = "serde_derive";
+            packageId = "serde_derive";
+            optional = true;
+          }
+        ];
+        devDependencies = [
+          {
+            name = "serde_derive";
+            packageId = "serde_derive";
+          }
+        ];
         features = {
           "default" = [ "std" ];
           "derive" = [ "serde_derive" ];
           "serde_derive" = [ "dep:serde_derive" ];
         };
-        resolvedDefaultFeatures = [ "alloc" "default" "std" ];
+        resolvedDefaultFeatures = [ "alloc" "default" "derive" "serde_derive" "std" ];
+      };
+      "serde_derive" = rec {
+        crateName = "serde_derive";
+        version = "1.0.152";
+        edition = "2015";
+        sha256 = "07jlbk3khspawlqayr5lhzgqirv031ap4p8asw199l7ciq8psj5g";
+        procMacro = true;
+        authors = [
+          "Erick Tryzelaar <erick.tryzelaar@gmail.com>"
+          "David Tolnay <dtolnay@gmail.com>"
+        ];
+        dependencies = [
+          {
+            name = "proc-macro2";
+            packageId = "proc-macro2";
+          }
+          {
+            name = "quote";
+            packageId = "quote";
+          }
+          {
+            name = "syn";
+            packageId = "syn 1.0.107";
+          }
+        ];
+        features = {
+        };
+        resolvedDefaultFeatures = [ "default" ];
       };
       "serde_json" = rec {
         crateName = "serde_json";
@@ -4333,7 +4420,7 @@ rec {
           }
           {
             name = "syn";
-            packageId = "syn";
+            packageId = "syn 1.0.107";
             usesDefaultFeatures = false;
             features = [ "full" ];
           }
@@ -4463,7 +4550,7 @@ rec {
         ];
 
       };
-      "syn" = rec {
+      "syn 1.0.107" = rec {
         crateName = "syn";
         version = "1.0.107";
         edition = "2018";
@@ -4496,6 +4583,40 @@ rec {
           "test" = [ "syn-test-suite/all-features" ];
         };
         resolvedDefaultFeatures = [ "clone-impls" "default" "derive" "extra-traits" "full" "parsing" "printing" "proc-macro" "quote" "visit" "visit-mut" ];
+      };
+      "syn 2.0.18" = rec {
+        crateName = "syn";
+        version = "2.0.18";
+        edition = "2021";
+        sha256 = "0gpa0391m1z2ca3gjsq6s72k8hdhil6hpiz7a86c495ypividm1j";
+        authors = [
+          "David Tolnay <dtolnay@gmail.com>"
+        ];
+        dependencies = [
+          {
+            name = "proc-macro2";
+            packageId = "proc-macro2";
+            usesDefaultFeatures = false;
+          }
+          {
+            name = "quote";
+            packageId = "quote";
+            optional = true;
+            usesDefaultFeatures = false;
+          }
+          {
+            name = "unicode-ident";
+            packageId = "unicode-ident";
+          }
+        ];
+        features = {
+          "default" = [ "derive" "parsing" "printing" "clone-impls" "proc-macro" ];
+          "printing" = [ "quote" ];
+          "proc-macro" = [ "proc-macro2/proc-macro" "quote/proc-macro" ];
+          "quote" = [ "dep:quote" ];
+          "test" = [ "syn-test-suite/all-features" ];
+        };
+        resolvedDefaultFeatures = [ "clone-impls" "full" "parsing" "printing" "proc-macro" "quote" ];
       };
       "sync_wrapper" = rec {
         crateName = "sync_wrapper";
@@ -4611,7 +4732,7 @@ rec {
           }
           {
             name = "syn";
-            packageId = "syn";
+            packageId = "syn 1.0.107";
           }
         ];
 
@@ -4802,7 +4923,7 @@ rec {
           }
           {
             name = "syn";
-            packageId = "syn";
+            packageId = "syn 1.0.107";
             features = [ "full" ];
           }
         ];
@@ -5248,7 +5369,7 @@ rec {
           }
           {
             name = "syn";
-            packageId = "syn";
+            packageId = "syn 1.0.107";
             usesDefaultFeatures = false;
             features = [ "full" "parsing" "printing" "visit" "visit-mut" "clone-impls" "extra-traits" "proc-macro" ];
           }
@@ -5707,7 +5828,7 @@ rec {
           }
           {
             name = "syn";
-            packageId = "syn";
+            packageId = "syn 1.0.107";
             features = [ "full" ];
           }
           {
@@ -5764,7 +5885,7 @@ rec {
           }
           {
             name = "syn";
-            packageId = "syn";
+            packageId = "syn 1.0.107";
             features = [ "visit" "full" ];
           }
           {

@@ -281,10 +281,14 @@ async fn get_new_store_path_batch(from_id: Id) -> anyhow::Result<(Vec<PathBuf>, 
 /// Index this path, but harder than automatic indexation
 ///
 /// Specifically, this is allowed to download the .drv file from a cache.
-pub async fn index_store_path_online(cache: &Cache, path: &Path) -> anyhow::Result<()> {
+pub async fn index_single_store_path_to_cache(
+    cache: &Cache,
+    path: &Path,
+    online: bool,
+) -> anyhow::Result<()> {
     let (tx, mut rx) = tokio::sync::mpsc::channel(BATCH_SIZE);
     let path = path.to_path_buf();
-    let handle = tokio::task::spawn_blocking(move || index_store_path(&path, tx, false));
+    let handle = tokio::task::spawn_blocking(move || index_store_path(&path, tx, online));
     let mut batch = Vec::new();
     while let Some(entry) = rx.recv().await {
         batch.push(entry);

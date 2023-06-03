@@ -21,8 +21,10 @@ use std::time::Duration;
 use tokio_util::io::ReaderStream;
 
 use crate::db::Cache;
-use crate::index::{index_store_path_online, StoreWatcher};
+use crate::index::{index_single_store_path_to_cache, StoreWatcher};
+use crate::log::ResultExt;
 use crate::store::{get_file_for_source, get_store_path, realise, SourceLocation};
+use crate::substituter::{FileSubstituter, Substituter};
 use crate::Options;
 
 /// The only status code in the client code of debuginfod in elfutils that prevents
@@ -124,9 +126,41 @@ async fn maybe_reindex_by_build_id(cache: &Cache, buildid: &str) -> anyhow::Resu
             buildid
         ),
     };
-    index_store_path_online(cache, storepath)
+    index_single_store_path_to_cache(cache, storepath, true)
         .await
         .with_context(|| format!("indexing {} online", exe.display()))?;
+    Ok(())
+}
+
+/// attempts to fetch debuginfo from substituters via the same API as dwarffs
+async fn maybe_fetch_debuginfo_from_substituter_index(
+    cache: &Cache,
+    buildid: &str,
+) -> anyhow::Result<()> {
+    let mut substituters: Vec<Box<dyn Substituter>> = vec![];
+    if let Ok(Some(s)) = FileSubstituter::from_url("file:///tmp/cache").await {
+        substituters.push(Box::new(s));
+    }
+    for substituter in &substituters {
+        match crate::substituter::fetch_debuginfo(substituter.as_ref(), buildid).await {
+            Err(e) => tracing::info!(
+                "cannot fetch buildid {} from substituter {}: {}",
+                buildid,
+                substituter.url(),
+                e
+            ),
+            Ok(None) => (),
+            Ok(Some(path)) => {
+                index_single_store_path_to_cache(cache, &path, false)
+                    .await
+                    .with_context(|| format!("indexing {}", path.display()))
+                    .or_warn();
+                if let Ok(Some(_)) = cache.get_debuginfo(buildid).await {
+                    break;
+                }
+            }
+        }
+    }
     Ok(())
 }
 
@@ -143,6 +177,16 @@ async fn get_debuginfo(
         Ok(None) => {
             // try again harder
             match maybe_reindex_by_build_id(&cache, &buildid).await {
+                Ok(()) => cache.get_debuginfo(&buildid).await,
+                Err(e) => Err(e),
+            }
+        }
+        res => res,
+    };
+    let res = match res {
+        Ok(None) => {
+            // try again harder
+            match maybe_fetch_debuginfo_from_substituter_index(&cache, &buildid).await {
                 Ok(()) => cache.get_debuginfo(&buildid).await,
                 Err(e) => Err(e),
             }
