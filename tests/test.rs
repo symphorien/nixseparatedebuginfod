@@ -79,14 +79,49 @@ fn fixture(name: &str) -> PathBuf {
     root
 }
 
-// runs nix-build ./tests/debugees.nix -A $attr -o $output
-fn nix_build(attr: &str, output: &Path) {
+/// runs nix-build ./tests/debugees.nix -A $attr -o $output --store $store
+fn nix_build(attr: &str, output: &Path, store: Option<impl AsRef<Path>>) {
     let mut cmd = Command::new("nix-build");
     cmd.arg(fixture("debugees.nix"));
     cmd.arg("-A");
     cmd.arg(attr);
     cmd.arg("-o");
     cmd.arg(output);
+    if let Some(store) = store {
+        cmd.arg("--store");
+        cmd.arg(store.as_ref());
+    }
+    dbg!(cmd).assert().success();
+}
+
+/// runs nix copy --from ... --to ... --store ... path
+fn nix_copy(
+    from: Option<impl AsRef<Path>>,
+    to: Option<impl AsRef<Path>>,
+    path: &Path,
+    store: Option<impl AsRef<Path>>,
+) {
+    let mut cmd = Command::new("nix");
+    cmd.arg("copy");
+    cmd.args([
+        "--extra-experimental-features",
+        "nix-command",
+        "--extra-experimental-features",
+        "flakes",
+    ]);
+    if let Some(from) = from {
+        cmd.arg("--from");
+        cmd.arg(from.as_ref());
+    }
+    if let Some(to) = to {
+        cmd.arg("--to");
+        cmd.arg(to.as_ref());
+    }
+    if let Some(store) = store {
+        cmd.arg("--store");
+        cmd.arg(store.as_ref());
+    }
+    cmd.arg(path);
     dbg!(cmd).assert().success();
 }
 
@@ -110,12 +145,12 @@ fn remove_debug_output(attr: &str) {
 }
 
 #[test]
-fn test() {
+fn test_normal() {
     let t = tempfile::tempdir().unwrap();
 
     // gnumake has source in tar.gz files
     let output = file_in(&t, "gnumake");
-    nix_build("gnumake", &output);
+    nix_build("gnumake", &output, None::<PathBuf>);
 
     remove_debug_output("gnumake");
 
@@ -138,13 +173,51 @@ fn test() {
 
     // nix has source in flat files
     let output: PathBuf = file_in(&t, "nix");
-    nix_build("nix", &output);
+    nix_build("nix", &output, None::<PathBuf>);
 
     let mut exe = output;
     exe.push("bin");
     exe.push("nix");
     let out = gdb(&t, &exe, port, "start\nl\n");
     assert!(dbg!(out).contains("389\tint main(int argc, char * * argv)"));
+
+    server.kill().unwrap();
+}
+
+#[test]
+fn test_hydra_api() {
+    let t = tempfile::tempdir().unwrap();
+    let store = file_in(&t, "store");
+
+    let output = file_in(&t, "python");
+    // build in another store so we don't have the drv file
+    nix_build("python3", &output, Some(&store));
+    let python = std::fs::read_link(output).unwrap();
+    let output = file_in(&t, "python_debug");
+    // std::mem::forget(t);
+    nix_build("python3.debug", &output, Some(&store));
+    let real_output = output.with_file_name(format!(
+        "{}-debug",
+        output.file_name().unwrap().to_str().unwrap()
+    ));
+    let python_debug = std::fs::read_link(real_output).unwrap();
+
+    nix_copy(
+        None::<PathBuf>,
+        Some("file:///tmp/cache?index-debug-info=true"),
+        &python_debug,
+        Some(&store),
+    );
+    nix_copy(Some(&store), None::<PathBuf>, &python, None::<PathBuf>);
+
+    // return;
+    let (port, mut server) = spawn_server(&t);
+
+    let exe = python.join("bin/python");
+    // this is before indexation finished, and should not populate the client cache
+    let out = gdb(&t, &exe, port, "start\n");
+    // we don't get source code but at least we get location information
+    assert!(dbg!(out).contains(" at Programs/python.c:15"));
 
     server.kill().unwrap();
 }

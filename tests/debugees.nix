@@ -12,5 +12,6 @@ in
 {
   inherit (pkgs)
     gnumake # has source in archive
-    nix; # has source in flat files
+    nix # has source in flat files
+    python3;
 }

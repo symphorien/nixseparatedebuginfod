@@ -70,6 +70,11 @@ async fn fetch_debuginfo_from<T: Substituter + ?Sized>(
     path: &Path,
     max_redirects: usize,
 ) -> anyhow::Result<Option<PathBuf>> {
+    tracing::debug!(
+        "attempting to fetch {} from {}",
+        path.display(),
+        substituter.url()
+    );
     let file = substituter
         .fetch(path)
         .await
@@ -78,10 +83,15 @@ async fn fetch_debuginfo_from<T: Substituter + ?Sized>(
         None => return Ok(None),
         Some(f) => f,
     };
+    let tempdir;
     let temppath;
     let target;
+    // the logic below is taken from dwarffs, but hydra only uses json redirection -> nar.xz
     let dir_to_add = match &magic(file.as_path()).await? {
         m if m.starts_with(ELF_MAGIC) => {
+            /* This is the debuginfo file we want.
+             * Let's create the expected hierarchy `lib/debug/.buildid/aa/bbbbbbbb`
+             */
             // sync code
             let buildid = match get_buildid(file.as_path()).with_context(|| {
                 format!(
@@ -111,12 +121,12 @@ async fn fetch_debuginfo_from<T: Substituter + ?Sized>(
             target.as_path()
         }
         m if m.starts_with(b"{") => {
-            // this is a json redirect
+            /*****************
+             * this is a json redirect
+             *****************/
             if max_redirects == 0 {
                 anyhow::bail!("too many redirects");
             }
-            // this is a json redirect
-            //
             // sync code
             let file = std::fs::File::open(file.as_path())
                 .with_context(|| format!("opening {} to deserialize as json", path.display()))?;
@@ -140,9 +150,14 @@ async fn fetch_debuginfo_from<T: Substituter + ?Sized>(
         }
         m => {
             let nar_file = if m.starts_with(NAR_MAGIC) {
+                /***********
+                 * this is the nar file containing the debuginfo
+                 **********/
                 file.as_path() // a nar file
             } else {
-                // this is a compressed nar probably
+                /***********
+                 * this is a compressed nar probably
+                 **********/
                 temppath = tempfile::NamedTempFile::new()
                     .context("temppath")?
                     .into_temp_path();
@@ -169,9 +184,9 @@ async fn fetch_debuginfo_from<T: Substituter + ?Sized>(
             let fd = tokio::fs::File::open(nar_file).await?;
             let mut cmd = tokio::process::Command::new("nix-store");
             cmd.arg("--restore");
-            let dir = tempfile::TempDir::new().context("tempdir")?;
+            tempdir = tempfile::TempDir::new().context("tempdir")?;
             // FIXME: the indexer should probably not take the name of the store path into account
-            target = dir.as_ref().join("nar-debug");
+            target = tempdir.as_ref().join("nar-debug");
             cmd.arg(target.as_path());
             cmd.stdin(fd.into_std().await);
             let status = cmd.status().await.with_context(|| {
