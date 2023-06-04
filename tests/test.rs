@@ -24,12 +24,26 @@ fn populate_cache(t: &TempDir) {
 /// Spawns a nixseparatedebuginfod on a random port
 ///
 /// returns the port and child handle. Don't forget to kill it.
-fn spawn_server(t: &TempDir) -> (u16, std::process::Child) {
+///
+/// If substituters is not None, hacks the environment so that nix show-config
+/// lists those substituters. This hack should be ignore by actual nix-store commands
+/// as these go through the daemon
+fn spawn_server(t: &TempDir, substituters: Option<Vec<&str>>) -> (u16, std::process::Child) {
     let port: u16 = 3000 + rand::random::<u8>() as u16;
     let mut cmd = nixseparatedebuginfod(&t);
     cmd.arg("-l");
     cmd.arg(format!("127.0.0.1:{port}"));
     suicide(&mut cmd);
+    if let Some(substituters) = substituters {
+        let nix_conf = file_in(&t, "nix.conf");
+        let substituters_as_str = &substituters.join(" ");
+        std::fs::write(&nix_conf, format!("substituters = {substituters_as_str}\ntrusted-substituters = {substituters_as_str}")).unwrap();
+        cmd.env("NIX_CONF_DIR", t.path().display().to_string());
+    }
+    cmd.env(
+        "RUST_LOG",
+        "nixseparatedebuginfod=debug,actix=info,sqlx=warn,warn",
+    );
     let handle = dbg!(cmd).spawn().unwrap();
     (port, handle)
 }
@@ -154,7 +168,7 @@ fn test_normal() {
 
     remove_debug_output("gnumake");
 
-    let (port, mut server) = spawn_server(&t);
+    let (port, mut server) = spawn_server(&t, None);
 
     let mut exe = output;
     exe.push("bin");
@@ -166,7 +180,7 @@ fn test_normal() {
 
     populate_cache(&t);
 
-    let (port, mut server) = spawn_server(&t);
+    let (port, mut server) = spawn_server(&t, None);
 
     let out = gdb(&t, &exe, port, "start\nl\n");
     assert!(dbg!(out).contains("1051\tmain (int argc, char **argv)"));
@@ -211,7 +225,7 @@ fn test_hydra_api() {
     nix_copy(Some(&store), None::<PathBuf>, &python, None::<PathBuf>);
 
     // return;
-    let (port, mut server) = spawn_server(&t);
+    let (port, mut server) = spawn_server(&t, Some(vec!["file:///tmp/cache"]));
 
     let exe = python.join("bin/python");
     // this is before indexation finished, and should not populate the client cache

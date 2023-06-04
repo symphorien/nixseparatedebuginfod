@@ -14,9 +14,11 @@ use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use axum::{routing::get, Router};
 use http::header::{HeaderMap, CONTENT_LENGTH};
+use std::collections::HashSet;
 use std::os::unix::prelude::MetadataExt;
 use std::path::PathBuf;
 use std::process::ExitCode;
+use std::sync::Arc;
 use std::time::Duration;
 use tokio_util::io::ReaderStream;
 
@@ -26,6 +28,13 @@ use crate::log::ResultExt;
 use crate::store::{get_file_for_source, get_store_path, realise, SourceLocation};
 use crate::substituter::{FileSubstituter, Substituter};
 use crate::Options;
+
+#[derive(Clone)]
+struct ServerState {
+    cache: Cache,
+    watcher: StoreWatcher,
+    substituters: Arc<Vec<Box<dyn Substituter>>>,
+}
 
 /// The only status code in the client code of debuginfod in elfutils that prevents
 /// creation of a negative cache entry.
@@ -135,13 +144,10 @@ async fn maybe_reindex_by_build_id(cache: &Cache, buildid: &str) -> anyhow::Resu
 /// attempts to fetch debuginfo from substituters via the same API as dwarffs
 async fn maybe_fetch_debuginfo_from_substituter_index(
     cache: &Cache,
+    substituters: &[Box<dyn Substituter>],
     buildid: &str,
 ) -> anyhow::Result<()> {
-    let mut substituters: Vec<Box<dyn Substituter>> = vec![];
-    if let Ok(Some(s)) = FileSubstituter::from_url("file:///tmp/cache").await {
-        substituters.push(Box::new(s));
-    }
-    for substituter in &substituters {
+    for substituter in substituters.iter() {
         match crate::substituter::fetch_debuginfo(substituter.as_ref(), buildid).await {
             Err(e) => tracing::info!(
                 "cannot fetch buildid {} from substituter {}: {}",
@@ -167,17 +173,18 @@ async fn maybe_fetch_debuginfo_from_substituter_index(
 /// How long to wait for indexation to complete before serving the cache
 const INDEXING_TIMEOUT: Duration = Duration::from_secs(1);
 
+#[axum_macros::debug_handler]
 async fn get_debuginfo(
     Path(buildid): Path<String>,
-    State((cache, watcher)): State<(Cache, StoreWatcher)>,
+    State(state): State<ServerState>,
 ) -> impl IntoResponse {
-    let ready = start_indexation_and_wait(watcher, INDEXING_TIMEOUT).await;
-    let res = cache.get_debuginfo(&buildid).await;
+    let ready = start_indexation_and_wait(state.watcher, INDEXING_TIMEOUT).await;
+    let res = state.cache.get_debuginfo(&buildid).await;
     let res = match res {
         Ok(None) => {
             // try again harder
-            match maybe_reindex_by_build_id(&cache, &buildid).await {
-                Ok(()) => cache.get_debuginfo(&buildid).await,
+            match maybe_reindex_by_build_id(&state.cache, &buildid).await {
+                Ok(()) => state.cache.get_debuginfo(&buildid).await,
                 Err(e) => Err(e),
             }
         }
@@ -186,8 +193,14 @@ async fn get_debuginfo(
     let res = match res {
         Ok(None) => {
             // try again harder
-            match maybe_fetch_debuginfo_from_substituter_index(&cache, &buildid).await {
-                Ok(()) => cache.get_debuginfo(&buildid).await,
+            match maybe_fetch_debuginfo_from_substituter_index(
+                &state.cache,
+                state.substituters.as_ref(),
+                &buildid,
+            )
+            .await
+            {
+                Ok(()) => state.cache.get_debuginfo(&buildid).await,
                 Err(e) => Err(e),
             }
         }
@@ -196,12 +209,13 @@ async fn get_debuginfo(
     unwrap_file(res, ready).await
 }
 
+#[axum_macros::debug_handler]
 async fn get_executable(
     Path(buildid): Path<String>,
-    State((cache, watcher)): State<(Cache, StoreWatcher)>,
+    State(state): State<ServerState>,
 ) -> impl IntoResponse {
-    let ready = start_indexation_and_wait(watcher, INDEXING_TIMEOUT).await;
-    let res = cache.get_executable(&buildid).await;
+    let ready = start_indexation_and_wait(state.watcher, INDEXING_TIMEOUT).await;
+    let res = state.cache.get_executable(&buildid).await;
     unwrap_file(res, ready).await
 }
 
@@ -274,14 +288,16 @@ async fn uncompress_archive_file_to_http_body(
     tokio::spawn(decompressor_future);
     Ok(StreamBody::new(streamreader))
 }
+
+#[axum_macros::debug_handler]
 async fn get_source(
     Path(param): Path<(String, String)>,
-    State((cache, watcher)): State<(Cache, StoreWatcher)>,
+    State(state): State<ServerState>,
 ) -> impl IntoResponse {
-    let ready = start_indexation_and_wait(watcher, INDEXING_TIMEOUT).await;
+    let ready = start_indexation_and_wait(state.watcher, INDEXING_TIMEOUT).await;
     let path: &str = &param.1;
     let request = PathBuf::from(path);
-    let sourcefile = fetch_and_get_source(param.0.to_owned(), request, cache).await;
+    let sourcefile = fetch_and_get_source(param.0.to_owned(), request, state.cache).await;
     let response = match sourcefile {
         Ok(Some(SourceLocation::File(path))) => match tokio::fs::File::open(&path).await {
             Err(e) => Err((
@@ -333,6 +349,34 @@ async fn get_section(Path(_param): Path<(String, String)>) -> impl IntoResponse 
     StatusCode::NOT_IMPLEMENTED
 }
 
+async fn get_substituters() -> anyhow::Result<Vec<Box<dyn Substituter>>> {
+    let config = crate::config::get_nix_config()
+        .await
+        .context("determining the list of substituters")?;
+    let mut urls = HashSet::new();
+    for key in &["substituters", "trusted-substituters"] {
+        let several = config.get(*key).map(|s| s.as_str()).unwrap_or("");
+        for word in several.split(" ") {
+            if word.len() != 0 {
+                urls.insert(word);
+            }
+        }
+    }
+    tracing::debug!("found substituters {urls:?} in nix.conf");
+    let mut substituters: Vec<Box<dyn Substituter>> = vec![];
+    for url in urls.iter() {
+        match FileSubstituter::from_url(url).await {
+            Ok(Some(s)) => {
+                tracing::debug!("using substituter {} for hydra API", s.url());
+                substituters.push(Box::new(s));
+            }
+            Err(e) => tracing::warn!("substituter url {url} has a problem: {e}"),
+            Ok(None) => tracing::debug!("substituter {url} is not supported"),
+        }
+    }
+    Ok(substituters)
+}
+
 /// If option `-i` is specified, index and exit. Otherwise starts indexation and runs the
 /// debuginfod server.
 pub async fn run_server(args: Options) -> anyhow::Result<ExitCode> {
@@ -346,13 +390,19 @@ pub async fn run_server(args: Options) -> anyhow::Result<ExitCode> {
         Ok(ExitCode::SUCCESS)
     } else {
         watcher.watch_store();
+        let substituters = get_substituters().await.context("listing substituters")?;
+        let state = ServerState {
+            watcher,
+            cache,
+            substituters: Arc::new(substituters),
+        };
         let app = Router::new()
             .route("/buildid/:buildid/section/:section", get(get_section))
             .route("/buildid/:buildid/source/*path", get(get_source))
             .route("/buildid/:buildid/executable", get(get_executable))
             .route("/buildid/:buildid/debuginfo", get(get_debuginfo))
             .layer(tower_http::trace::TraceLayer::new_for_http())
-            .with_state((cache, watcher));
+            .with_state(state);
         axum::Server::bind(&args.listen_address)
             .serve(app.into_make_service())
             .await?;

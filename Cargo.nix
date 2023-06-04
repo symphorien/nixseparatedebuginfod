@@ -494,6 +494,43 @@ rec {
         ];
 
       };
+      "axum-macros" = rec {
+        crateName = "axum-macros";
+        version = "0.3.7";
+        edition = "2021";
+        sha256 = "0xrjwwq3adyzfk1lw27gypvqry8pn3vpjwhb52g96ig67dhj9d9b";
+        procMacro = true;
+        dependencies = [
+          {
+            name = "heck";
+            packageId = "heck";
+          }
+          {
+            name = "proc-macro2";
+            packageId = "proc-macro2";
+          }
+          {
+            name = "quote";
+            packageId = "quote";
+          }
+          {
+            name = "syn";
+            packageId = "syn 2.0.18";
+            features = [ "full" "parsing" "extra-traits" ];
+          }
+        ];
+        devDependencies = [
+          {
+            name = "syn";
+            packageId = "syn 2.0.18";
+            features = [ "full" "extra-traits" ];
+          }
+        ];
+        features = {
+          "__private" = [ "syn/visit-mut" ];
+        };
+        resolvedDefaultFeatures = [ "default" ];
+      };
       "base16" = rec {
         crateName = "base16";
         version = "0.2.1";
@@ -2324,6 +2361,16 @@ rec {
         };
         resolvedDefaultFeatures = [ "std" ];
       };
+      "maplit" = rec {
+        crateName = "maplit";
+        version = "1.0.2";
+        edition = "2015";
+        sha256 = "07b5kjnhrrmfhgqm9wprjw8adx6i225lqp49gasgqg74lahnabiy";
+        authors = [
+          "bluss"
+        ];
+
+      };
       "matchit" = rec {
         crateName = "matchit";
         version = "0.7.0";
@@ -2556,6 +2603,10 @@ rec {
             packageId = "axum";
           }
           {
+            name = "axum-macros";
+            packageId = "axum-macros";
+          }
+          {
             name = "base16";
             packageId = "base16";
           }
@@ -2643,6 +2694,10 @@ rec {
           {
             name = "assert_cmd";
             packageId = "assert_cmd";
+          }
+          {
+            name = "maplit";
+            packageId = "maplit";
           }
           {
             name = "prctl";
@@ -4616,7 +4671,7 @@ rec {
           "quote" = [ "dep:quote" ];
           "test" = [ "syn-test-suite/all-features" ];
         };
-        resolvedDefaultFeatures = [ "clone-impls" "full" "parsing" "printing" "proc-macro" "quote" ];
+        resolvedDefaultFeatures = [ "clone-impls" "default" "derive" "extra-traits" "full" "parsing" "printing" "proc-macro" "quote" ];
       };
       "sync_wrapper" = rec {
         crateName = "sync_wrapper";

@@ -17,6 +17,7 @@ use std::{net::SocketAddr, process::ExitCode};
 
 use clap::Parser;
 
+pub mod config;
 pub mod db;
 pub mod index;
 pub mod log;
