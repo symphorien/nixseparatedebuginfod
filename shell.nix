@@ -2,7 +2,8 @@
 #
 # SPDX-License-Identifier: CC0-1.0
 
-with import <nixpkgs> {};
+{ pkgs ? import <nixpkgs> {} }:
+with pkgs;
 mkShell {
   nativeBuildInputs = [
     cargo
@@ -11,12 +12,12 @@ mkShell {
     rust-analyzer
     sqlite
     openssl
-    (gdb.override { enableDebuginfod = true; })
     pkg-config
     reuse
     cargo-license
     cargo-outdated
-  ];
+  ]
+  ++ lib.optionals (!gdb.meta.unsupported) [gdb];
   buildInputs = [ libarchive ];
   RUST_BACKTRACE="full";
 }
