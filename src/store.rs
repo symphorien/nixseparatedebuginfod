@@ -10,7 +10,6 @@ use anyhow::Context;
 use object::read::Object;
 use once_cell::unsync::Lazy;
 use std::{
-    collections::HashSet,
     ffi::{OsStr, OsString},
     os::unix::prelude::{OsStrExt, OsStringExt},
     path::{Path, PathBuf},
@@ -428,9 +427,14 @@ pub fn get_file_for_source(
     source: &Path,
     request: &Path,
 ) -> anyhow::Result<Option<SourceLocation>> {
+    tracing::info!(
+        "request path {:?} in source {:?}",
+        request.display(),
+        source.display()
+    );
+
     let target: Vec<&OsStr> = request.iter().collect();
     // invariant: we only keep candidates which have same path as target for components i..
-    let mut i = target.len() - 1;
     let mut candidates: Vec<_> = Vec::new();
     let source_type = source
         .metadata()
@@ -443,7 +447,7 @@ pub fn get_file_for_source(
                     continue;
                 }
                 Ok(f) => {
-                    if Some(&f.file_name()) == target.get(i) {
+                    if Some(&f.file_name()) == target.last() {
                         candidates.push(SourceLocation::File(f.path().to_path_buf()));
                     }
                 }
@@ -455,7 +459,7 @@ pub fn get_file_for_source(
         let member_list = compress_tools::list_archive_files(&mut archive)
             .with_context(|| format!("listing files in source archive {}", source.display()))?;
         for member in member_list {
-            if Path::new(&member).file_name().as_ref() == target.get(i) {
+            if Path::new(&member).file_name().as_ref() == target.last() {
                 candidates.push(SourceLocation::Archive {
                     archive: source.to_path_buf(),
                     member: PathBuf::from(member),
@@ -463,37 +467,39 @@ pub fn get_file_for_source(
             }
         }
     }
-    if candidates.len() == 0 {
-        return Ok(None);
+    if candidates.len() < 2 {
+        return Ok(candidates.pop());
     }
-    if candidates.len() == 1 {
-        return Ok(Some(candidates[0].clone()));
+    let (_, mut best_candidates) = candidates.into_iter().fold(
+        (0, Vec::new()),
+        |(mut best_len, mut best_candidates), candidate| {
+            let member_path = candidate.member_path();
+            let matching_len = member_path
+                .iter()
+                .rev()
+                .zip(target.iter().rev())
+                .skip(1)
+                .position(|(ref c, t)| c != t)
+                .unwrap_or(member_path.iter().count() - 1);
+            if matching_len > best_len {
+                best_len = matching_len;
+                best_candidates.clear();
+                best_candidates.push(candidate);
+            } else if matching_len == best_len {
+                best_candidates.push(candidate);
+            }
+            (best_len, best_candidates)
+        },
+    );
+    if best_candidates.len() > 1 {
+        anyhow::bail!(
+            "cannot tell {:?} apart from {} for target {}",
+            &best_candidates,
+            &source.display(),
+            request.display()
+        );
     }
-    let candidates_split: HashSet<(usize, Vec<&OsStr>)> = candidates
-        .iter()
-        .map(|p| p.member_path().iter().collect())
-        .enumerate()
-        .collect();
-    let mut candidates_ref: HashSet<&(usize, Vec<&OsStr>)> = candidates_split.iter().collect();
-    while candidates_ref.len() >= 2 && i > 0 {
-        i -= 1;
-        let next: HashSet<&(usize, Vec<&OsStr>)> = candidates_ref
-            .iter()
-            .cloned()
-            .filter(|&(_, ref c)| c.get(i) == target.get(i))
-            .collect();
-        if next.len() == 0 {
-            anyhow::bail!(
-                "cannot tell {:?} apart from {} for target {}",
-                &candidates_ref,
-                &source.display(),
-                request.display()
-            );
-        };
-        candidates_ref = next;
-    }
-    let (winner, _) = candidates_ref.iter().next().unwrap();
-    Ok(Some(candidates[*winner].clone()))
+    Ok(best_candidates.pop())
 }
 
 #[cfg(test)]
