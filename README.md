@@ -197,6 +197,10 @@ Downloading 0.01 MB source file /build/source/src/nix/main.cc
 - [`dwarffs`](https://github.com/edolstra/dwarffs) downloads debug symbols on the fly from a custom API provided by hydra. You won't get debug symbols for derivations compiled locally or on a custom binary cache. It also does not point `gdb` to the right place to find source files.
 - `nixseparatedebuginfod` supports all binary caches because it just uses the `nix-store` command line tool. It can serve sources files as well (see the section about limitations, though). This relies on `.drv` files being present or substitutable, but when this is not the case `nixseparatedebuginfod` can fall back to the same mechanism as `dwarffs` (no source).
 
+## Security
+
+Normal operation uses `nix-*` commands and is subject to the normal nix control of substituter trust and NAR signing. When the `.drv` file of a store path is not found, `nixseparatedebuginfod` will fall back to same API as `dwarffs`. It serves NARs with debug symbols without signatures. This means that `nixseparatedebuginfod` may add NARs from any `file`, `http` and `https` substituters (trusted or not) in the output of `nix show-config` to your store without checking signatures.
+
 ## Notes
 
 An indexation step is needed on first startup, and then periodically. It happens automatically but can take a few minutes. A cache is stored somewhere in `~/.cache/nixseparatedebuginfod`, and currently this cache can only grow. You can safely remove it, it will be recreated on next startup.
