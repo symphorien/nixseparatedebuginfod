@@ -37,9 +37,11 @@ tempfile = "3"
 async-trait = "0.1"
 async-recursion = "1"
 axum-macros = "0.3.7"
+reqwest = { version = "0.11.18", features = [ "stream" ] }
 
 [dev-dependencies]
 assert_cmd = "2"
 rand = "0.8"
 prctl = "1"
 maplit = "1"
+reqwest = { version = "0.11.18", features = [ "blocking" ] }

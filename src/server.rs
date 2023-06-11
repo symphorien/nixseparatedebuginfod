@@ -26,7 +26,7 @@ use crate::db::Cache;
 use crate::index::{index_single_store_path_to_cache, StoreWatcher};
 use crate::log::ResultExt;
 use crate::store::{get_file_for_source, get_store_path, realise, SourceLocation};
-use crate::substituter::{FileSubstituter, Substituter};
+use crate::substituter::{FileSubstituter, HttpSubstituter, Substituter};
 use crate::Options;
 
 #[derive(Clone)]
@@ -150,7 +150,7 @@ async fn maybe_fetch_debuginfo_from_substituter_index(
     for substituter in substituters.iter() {
         match crate::substituter::fetch_debuginfo(substituter.as_ref(), buildid).await {
             Err(e) => tracing::info!(
-                "cannot fetch buildid {} from substituter {}: {}",
+                "cannot fetch buildid {} from substituter {}: {:#}",
                 buildid,
                 substituter.url(),
                 e
@@ -183,6 +183,7 @@ async fn get_debuginfo(
     let res = match res {
         Ok(None) => {
             // try again harder
+            tracing::debug!("{} was not in cache, reindexing online", buildid);
             match maybe_reindex_by_build_id(&state.cache, &buildid).await {
                 Ok(()) => state.cache.get_debuginfo(&buildid).await,
                 Err(e) => Err(e),
@@ -193,6 +194,10 @@ async fn get_debuginfo(
     let res = match res {
         Ok(None) => {
             // try again harder
+            tracing::debug!(
+                "online reindexation failed for {}, using hydra API",
+                buildid
+            );
             match maybe_fetch_debuginfo_from_substituter_index(
                 &state.cache,
                 state.substituters.as_ref(),
@@ -369,9 +374,18 @@ async fn get_substituters() -> anyhow::Result<Vec<Box<dyn Substituter>>> {
             Ok(Some(s)) => {
                 tracing::debug!("using substituter {} for hydra API", s.url());
                 substituters.push(Box::new(s));
+                continue;
             }
-            Err(e) => tracing::warn!("substituter url {url} has a problem: {e}"),
-            Ok(None) => tracing::debug!("substituter {url} is not supported"),
+            Err(e) => tracing::warn!("substituter url {url} has a problem: {e:#}"),
+            Ok(None) => tracing::debug!("substituter {url} is not supported by file:// backend"),
+        }
+        match HttpSubstituter::from_url(url).await {
+            Ok(Some(s)) => {
+                tracing::debug!("using substituter {} for hydra API", s.url());
+                substituters.push(Box::new(s));
+            }
+            Err(e) => tracing::warn!("substituter url {url} has a problem: {e:#}"),
+            Ok(None) => tracing::debug!("substituter {url} is not supported by https:// backend"),
         }
     }
     Ok(substituters)

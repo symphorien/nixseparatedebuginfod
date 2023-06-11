@@ -13,5 +13,6 @@ in
   inherit (pkgs)
     gnumake # has source in archive
     nix # has source in flat files
-    python3;
+    python3
+    python310;
 }

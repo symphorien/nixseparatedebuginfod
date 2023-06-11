@@ -21,6 +21,13 @@ fn populate_cache(t: &TempDir) {
     dbg!(cmd).assert().success();
 }
 
+fn wait_for_port(port: u16) {
+    while let Err(e) = reqwest::blocking::get(&format!("http://127.0.0.1:{port}")) {
+        println!("port {} is not open yet: {:#}", port, e);
+        std::thread::sleep(std::time::Duration::from_secs(1));
+    }
+}
+
 /// Spawns a nixseparatedebuginfod on a random port
 ///
 /// returns the port and child handle. Don't forget to kill it.
@@ -45,6 +52,7 @@ fn spawn_server(t: &TempDir, substituters: Option<Vec<&str>>) -> (u16, std::proc
         "nixseparatedebuginfod=debug,actix=info,sqlx=warn,warn",
     );
     let handle = dbg!(cmd).spawn().unwrap();
+    wait_for_port(port);
     (port, handle)
 }
 
@@ -158,6 +166,23 @@ fn remove_debug_output(attr: &str) {
     }
 }
 
+fn remove_debuginfo_for_builidid(buildid: &str) {
+    let segment = format!(
+        "lib/debug/.build-id/{}/{}.debug",
+        &buildid[..2],
+        &buildid[2..]
+    );
+    for entry in std::fs::read_dir("/nix/store").unwrap() {
+        let entry = entry.unwrap();
+        let path = entry.path().join(&segment);
+        if path.exists() {
+            let mut cmd = Command::new("nix-store");
+            cmd.arg("--delete").arg(entry.path());
+            dbg!(cmd).assert().success();
+        }
+    }
+}
+
 #[test]
 fn test_normal() {
     let t = tempfile::tempdir().unwrap();
@@ -168,7 +193,7 @@ fn test_normal() {
 
     remove_debug_output("gnumake");
 
-    let (port, mut server) = spawn_server(&t, None);
+    let (port, mut server) = spawn_server(&t, Some(vec![]));
 
     let mut exe = output;
     exe.push("bin");
@@ -180,7 +205,7 @@ fn test_normal() {
 
     populate_cache(&t);
 
-    let (port, mut server) = spawn_server(&t, None);
+    let (port, mut server) = spawn_server(&t, Some(vec![]));
 
     let out = gdb(&t, &exe, port, "start\nl\n");
     assert!(dbg!(out).contains("1051\tmain (int argc, char **argv)"));
@@ -199,7 +224,8 @@ fn test_normal() {
 }
 
 #[test]
-fn test_hydra_api() {
+fn test_hydra_api_file() {
+    remove_debuginfo_for_builidid("10deef1d1c1e79a27c25e9636d652ca3b99dc3f5");
     let t = tempfile::tempdir().unwrap();
     let store = file_in(&t, "store");
 
@@ -208,7 +234,6 @@ fn test_hydra_api() {
     nix_build("python3", &output, Some(&store));
     let python = std::fs::read_link(output).unwrap();
     let output = file_in(&t, "python_debug");
-    // std::mem::forget(t);
     nix_build("python3.debug", &output, Some(&store));
     let real_output = output.with_file_name(format!(
         "{}-debug",
@@ -216,16 +241,37 @@ fn test_hydra_api() {
     ));
     let python_debug = std::fs::read_link(real_output).unwrap();
 
-    nix_copy(
-        None::<PathBuf>,
-        Some("file:///tmp/cache?index-debug-info=true"),
-        &python_debug,
-        Some(&store),
-    );
+    let cache_dir = file_in(&t, "cache");
+    let cache = format!("file://{}?index-debug-info=true", cache_dir.display());
+
+    nix_copy(None::<PathBuf>, Some(&cache), &python_debug, Some(&store));
     nix_copy(Some(&store), None::<PathBuf>, &python, None::<PathBuf>);
 
-    // return;
-    let (port, mut server) = spawn_server(&t, Some(vec!["file:///tmp/cache"]));
+    let (port, mut server) = spawn_server(&t, Some(vec![&cache]));
+
+    let exe = python.join("bin/python");
+    // this is before indexation finished, and should not populate the client cache
+    let out = gdb(&t, &exe, port, "start\n");
+    // we don't get source code but at least we get location information
+    assert!(dbg!(out).contains(" at Programs/python.c:15"));
+
+    server.kill().unwrap();
+}
+
+#[test]
+fn test_hydra_api_https() {
+    remove_debuginfo_for_builidid("78218dee9fd3709104f6521a2c5507fb0a5732b2");
+    let t = tempfile::tempdir().unwrap();
+    let store = file_in(&t, "store");
+
+    let output = file_in(&t, "python");
+    // build in another store so we don't have the drv file
+    nix_build("python310", &output, Some(&store));
+    let python = std::fs::read_link(output).unwrap();
+
+    nix_copy(Some(&store), None::<PathBuf>, &python, None::<PathBuf>);
+
+    let (port, mut server) = spawn_server(&t, None);
 
     let exe = python.join("bin/python");
     // this is before indexation finished, and should not populate the client cache

@@ -2,7 +2,9 @@
 //! `?index-debug-info=true`, for example Hydra.
 
 use std::{
+    collections::hash_map::DefaultHasher,
     ffi::OsStr,
+    hash::{Hash, Hasher},
     io::{BufReader, Read},
     os::unix::prelude::OsStrExt,
     path::{Path, PathBuf},
@@ -11,8 +13,12 @@ use std::{
 use anyhow::Context;
 use async_recursion::async_recursion;
 use async_trait::async_trait;
+use futures_util::StreamExt;
+use http::StatusCode;
+use reqwest::Url;
 use serde::Deserialize;
 use tempfile::TempDir;
+use tokio::io::{AsyncWriteExt, BufWriter};
 
 use crate::store::{get_buildid, get_store_path};
 
@@ -57,8 +63,21 @@ pub async fn fetch_debuginfo<T: Substituter + ?Sized>(
     substituter: &T,
     buildid: &str,
 ) -> anyhow::Result<Option<PathBuf>> {
-    let path = PathBuf::from(format!("debuginfo/{buildid}.debug"));
-    fetch_debuginfo_from(substituter, path.as_path(), 2).await
+    let mut res = Ok(None);
+    for path in [
+        // for hydra
+        PathBuf::from(format!("debuginfo/{buildid}")),
+        // for file:///path?index-debug-info=true created with nix copy
+        PathBuf::from(format!("debuginfo/{buildid}.debug")),
+    ]
+    .into_iter()
+    {
+        res = fetch_debuginfo_from(substituter, path.as_path(), 2).await;
+        if let Ok(Some(_)) = &res {
+            break;
+        }
+    }
+    res
 }
 
 /// attempt to fetch debuginfo in this relative path inside the substituter
@@ -248,11 +267,14 @@ impl FileSubstituter {
     /// If this url starts with file:/// and is a real path then returns an instance, otherwise
     /// None
     pub async fn from_url(url: &str) -> anyhow::Result<Option<Self>> {
-        if !url.starts_with("file:///") {
+        let parsed_url =
+            Url::parse(url).with_context(|| format!("parsing binary cache url {url}"))?;
+        if parsed_url.scheme() != "file" {
             return Ok(None);
         }
-        let path = &url[7..];
-        let path = PathBuf::from(path);
+        let path = parsed_url
+            .to_file_path()
+            .map_err(|_| anyhow::anyhow!("cannot convert {} to file path", url))?;
         let path = path.canonicalize().with_context(|| {
             format!(
                 "resolving directory {} of substituter {}",
@@ -299,21 +321,148 @@ async fn file_substituter_from_url() {
         FileSubstituter::from_url(&format!("file://{}/doesnotexist", d.path().display())).await,
         Err(_)
     ));
-    let ok = FileSubstituter::from_url(&format!("file://{}/./", d.path().display()))
-        .await
-        .unwrap()
-        .unwrap();
+    let ok = FileSubstituter::from_url(&format!(
+        "file://{}/./?with_query_string=true",
+        d.path().display()
+    ))
+    .await
+    .unwrap()
+    .unwrap();
     assert_eq!(&ok.path, d.path());
 }
 
 #[tokio::test]
 async fn file_substituter_fetch() {
     let d = TempDir::new().unwrap();
-    let ok = FileSubstituter::from_url(&format!("file://{}/./", d.path().display()))
+    let ok = FileSubstituter::from_url(&format!("file://{}/./?yay=bar", d.path().display()))
         .await
         .unwrap()
         .unwrap();
     let path = d.path().join("file");
     std::fs::write(&path, "yay").unwrap();
     assert_eq!(ok.fetch(Path::new("./file")).await.unwrap().unwrap(), path);
+}
+
+/// A https:/// substituter
+#[derive(Debug)]
+pub struct HttpSubstituter {
+    // The url to contact the cache, without its nix-specific query string, and with a trailing
+    // slash
+    http_url: Url,
+    // url of the substituter, as passed to from_url
+    url: String,
+    client: reqwest::Client,
+    cache: TempDir,
+}
+
+impl HttpSubstituter {
+    /// If this url starts with file:/// and is a real path then returns an instance, otherwise
+    /// None
+    pub async fn from_url(url: &str) -> anyhow::Result<Option<Self>> {
+        let mut http_url =
+            Url::parse(url).with_context(|| format!("parsing binary cache url {url}"))?;
+        match http_url.scheme() {
+            "http" | "https" => (),
+            _ => return Ok(None),
+        };
+
+        http_url.set_query(None);
+        if !http_url.path().ends_with("/") {
+            let mut path = http_url.path().to_owned();
+            path.push('/');
+            http_url.set_path(&path);
+        }
+
+        let cache = TempDir::new().context("tempdir")?;
+        let client = reqwest::Client::new();
+
+        Ok(Some(HttpSubstituter {
+            http_url,
+            url: url.to_owned(),
+            cache,
+            client,
+        }))
+    }
+}
+
+#[async_trait]
+impl Substituter for HttpSubstituter {
+    async fn fetch(&self, path: &Path) -> anyhow::Result<Option<PathBuf>> {
+        anyhow::ensure!(
+            path.is_relative(),
+            "substituter path {} should be relative",
+            path.display()
+        );
+        let path_str = path
+            .to_str()
+            .ok_or_else(|| anyhow::anyhow!("invalid path {}", path.display()))?;
+        let url = self
+            .http_url
+            .join(path_str)
+            .with_context(|| format!("cannot join {} to {}", path_str, &self.http_url))?;
+
+        let mut hasher = DefaultHasher::default();
+        url.hash(&mut hasher);
+        let hash = hasher.finish();
+        let cache_path = self.cache.path().join(format!("{hash:x}"));
+
+        if cache_path.exists() {
+            return Ok(Some(cache_path));
+        }
+
+        let tmp = tempfile::TempPath::from_path(self.cache.path().join(format!("{hash:x}.part")));
+        let fd = tokio::fs::File::create(&tmp).await.context("temp file")?;
+        let mut write = BufWriter::new(fd);
+
+        tracing::debug!("getting {}", &url);
+        let response = match self.client.get(url.as_str()).send().await {
+            Ok(r) if r.status() == StatusCode::NOT_FOUND => {
+                tracing::debug!("{} not found in {}", path.display(), self.url());
+                return Ok(None);
+            }
+            Err(e) if e.status() == Some(StatusCode::NOT_FOUND) => {
+                tracing::debug!("{} not found in {}", path.display(), self.url());
+                return Ok(None);
+            }
+            Ok(r) if r.status() != StatusCode::OK => {
+                tracing::warn!("unexpected status {} for {}", r.status(), &url);
+                anyhow::bail!("{} returned status {}", self.url(), r.status());
+            }
+            Ok(r) => r,
+            Err(e) => anyhow::bail!(
+                "cannot fetch {} for {} in {}: {:#}",
+                &url,
+                path.display(),
+                self.url(),
+                e
+            ),
+        };
+        let mut body = response.bytes_stream();
+
+        while let Some(chunk) = body.next().await {
+            let chunk = chunk.with_context(|| {
+                format!(
+                    "downloading from {} for {} in {}",
+                    &url,
+                    path.display(),
+                    self.url()
+                )
+            })?;
+            write
+                .write_all(&chunk)
+                .await
+                .context("writing to tmp file")?;
+        }
+
+        write.flush().await.context("writing to disk")?;
+        write.into_inner().sync_data().await.context("syncing")?;
+
+        tmp.persist(&cache_path).context("renaming temp file")?;
+
+        Ok(Some(cache_path))
+    }
+
+    fn url(&self) -> &str {
+        &self.url
+    }
 }
