@@ -187,14 +187,15 @@ Downloading 0.01 MB source file /build/source/src/nix/main.cc
 ## Limitations
 - `nixseparatedebuginfod` only provides debug symbols for derivations built with `separateDebugInfo` set to `true`, obviously.
 - GDB only queries source files to `debuginfod` servers if the debug symbols were also provided via `debuginfod`, so `nixseparatedebuginfod` does not provide source for store paths with non-separate debug symbols (e.g. produced with `enableDebugging`).
-- `nixseparatedebuginfod` only finds the debug outputs of store paths with `.drv` file present on the system or substitutable. This should be the case in most cases, but not if you `nix-store --realise` a store path manually from hydra.
+- `nixseparatedebuginfod` only finds the debug outputs of store paths if either a binary cache has indexed it (the same technique as `dwarffs`) or the `.drv` file is present on the system or substitutable. This should cover most cases, however.
+- Source fetching does not work when only the `dwarffs` can be used.
 - If a derivation patches a source file before compiling it, `nixseparatedebuginfod` will serve the unpatched source file straight from the `src` attribute of the derivation.
 - The `section` endpoint of the `debuginfod` protocol is not implemented. (If you know of some client that uses it, tell me).
 
 ## Comparison to other ways to provide debug symbols
 - the `environment.enableDebugInfo = true;` NixOS option only provides debug symbols for software installed in `environment.systemPackages`, but not inner libraries. As a result you will get debug symbols for `qemu`, but not for the `glibc` it uses. It also downloads debug symbols even if you end up not using them, and `qemu` debug symbols take very long to download...
 - [`dwarffs`](https://github.com/edolstra/dwarffs) downloads debug symbols on the fly from a custom API provided by hydra. You won't get debug symbols for derivations compiled locally or on a custom binary cache. It also does not point `gdb` to the right place to find source files.
-- `nixseparatedebuginfod` supports all binary caches because it just uses the `nix-store` command line tool. It can serve sources files as well (see the section about limitations, though).
+- `nixseparatedebuginfod` supports all binary caches because it just uses the `nix-store` command line tool. It can serve sources files as well (see the section about limitations, though). This relies on `.drv` files being present or substitutable, but when this is not the case `nixseparatedebuginfod` can fall back to the same mechanism as `dwarffs` (no source).
 
 ## Notes
 
@@ -202,7 +203,7 @@ An indexation step is needed on first startup, and then periodically. It happens
 
 The `debuginfod` client provided by `elfutils` (used in `gdb`) caches `debuginfod` misses, and the only way to prevent this is to return `406 File too big`. If `gdb` requests something during initial indexation you will see spurious complaints about `File too big`. You can ignore them, and retry later is debug symbols are missing.
 (For development, it is useful to disable this cache altogether:
-write 0 to `~/.cache/debuginfod_client/cache_miss_s` and `~/.cache/debuginfod_client/max_unused_age_s` and `~/.cache/debuginfod_client/cache_clean_interval_s`.)
+write 0 to `~/.cache/debuginfod_client/cache_miss_s` and `~/.cache/debuginfod_client/max_unused_age_s` and `~/.cache/debuginfod_client/cache_clean_interval_s`. However, this breaks `gdb` back traces in weird ways.)
 
 To make `nixseparatedebuginfod` less verbose, export `RUST_LOG=warn` or `RUST_LOG=error`.
 
