@@ -372,7 +372,7 @@ fn get_source(drvpath: &Path) -> anyhow::Result<Option<PathBuf>> {
 }
 
 /// Where a source file might be
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SourceLocation {
     /// Inside an archive
     Archive {
@@ -494,6 +494,58 @@ pub fn get_file_for_source(
     }
     let (winner, _) = candidates_ref.iter().next().unwrap();
     Ok(Some(candidates[*winner].clone()))
+}
+
+#[cfg(test)]
+fn make_test_source_path(paths: Vec<&'static str>) -> tempfile::TempDir {
+    let dir = tempfile::TempDir::new().unwrap();
+    for path in paths {
+        let path = dir.path().join(path);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, "content").unwrap();
+    }
+    dir
+}
+
+#[test]
+fn get_file_for_source_simple() {
+    let dir = make_test_source_path(vec!["soft-version/src/main.c", "soft-version/src/Makefile"]);
+    let res = get_file_for_source(dir.path(), "/source/soft-version/src/main.c".as_ref())
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        res,
+        SourceLocation::File(dir.path().join("soft-version/src/main.c"))
+    );
+}
+
+#[test]
+fn get_file_for_source_different_dir() {
+    let dir = make_test_source_path(vec!["lib/core-net/network.c", "lib/plat/optee/network.c"]);
+    let res = get_file_for_source(dir.path(), "/build/source/lib/core-net/network.c".as_ref())
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        res,
+        SourceLocation::File(dir.path().join("lib/core-net/network.c"))
+    );
+}
+
+#[test]
+fn get_file_for_source_ambiguous() {
+    let dir = make_test_source_path(vec![
+        "glibc-2.37/sysdeps/unix/sysv/linux/openat64.c",
+        "glibc-2.37/sysdeps/mach/hurd/openat64.c",
+        "glibc-2.37/io/openat64.c",
+    ]);
+    let res = get_file_for_source(
+        dir.path(),
+        "/build/glibc-2.37/io/../sysdeps/unix/sysv/linux/openat64.c".as_ref(),
+    );
+    assert!(res.is_err());
+    let msg = res.unwrap_err().to_string();
+    assert!(dbg!(&msg).contains("cannot tell"));
+    assert!(msg.contains("apart"));
 }
 
 /// Turns a path in the store as its topmost parent in /nix/store
