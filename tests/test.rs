@@ -281,3 +281,41 @@ fn test_hydra_api_https() {
 
     server.kill().unwrap();
 }
+
+#[test]
+fn test_cache_invalidation() {
+    let t = tempfile::tempdir().unwrap();
+
+    let output = file_in(&t, "sl");
+    nix_build("sl", &output, None::<PathBuf>);
+    let sl = std::fs::read_link(output).unwrap();
+    let output = file_in(&t, "sl_debug");
+    nix_build("sl.debug", &output, None::<PathBuf>);
+    let real_output = output.with_file_name(format!(
+        "{}-debug",
+        output.file_name().unwrap().to_str().unwrap()
+    ));
+    let sl_debug = std::fs::read_link(&real_output).unwrap();
+    std::fs::remove_file(real_output).unwrap();
+
+    let cache_dir = file_in(&t, "cache");
+    let cache = format!("file://{}?index-debug-info=true", cache_dir.display());
+
+    nix_copy(None::<PathBuf>, Some(&cache), &sl_debug, None::<PathBuf>);
+
+    // register the debug output
+    populate_cache(&t);
+
+    // invalidate the value in the cache
+    remove_debug_output("sl");
+
+    let (port, mut server) = spawn_server(&t, Some(vec![&cache]));
+
+    let exe = sl.join("bin/sl");
+    // the cached value does not exist anymore and cannot be recreated
+    // with nix-store --realise, so fetch it with the hydra api
+    let out = gdb(&t, &exe, port, "start\n");
+    assert!(dbg!(out).contains("at sl.c:120"));
+
+    server.kill().unwrap();
+}

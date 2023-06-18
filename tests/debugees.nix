@@ -15,4 +15,5 @@ in
     nix # has source in flat files
     python3
     python310;
+  sl = pkgs.sl.overrideAttrs (_:{ separateDebugInfo = true; });
 }

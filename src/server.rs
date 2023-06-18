@@ -54,26 +54,22 @@ async fn unwrap_file<T: AsRef<std::path::Path>>(
 ) -> impl IntoResponse {
     let response = match path {
         Ok(Some(p)) => {
-            let exists = realise(p.as_ref()).await;
-            match exists {
-                Ok(()) => match tokio::fs::File::open(p.as_ref()).await {
-                    Err(e) => Err((StatusCode::NOT_FOUND, format!("{:#}", e))),
-                    Ok(file) => {
-                        let mut headers = HeaderMap::new();
-                        if let Ok(metadata) = p.as_ref().metadata() {
-                            if let Ok(value) = metadata.size().to_string().parse() {
-                                headers.insert(CONTENT_LENGTH, value);
-                            }
-                        }
-                        tracing::info!("returning {}", p.as_ref().display());
-                        // convert the `AsyncRead` into a `Stream`
-                        let stream = ReaderStream::new(file);
-                        // convert the `Stream` into an `axum::body::HttpBody`
-                        let body = StreamBody::new(stream);
-                        Ok((headers, body))
-                    }
-                },
+            match tokio::fs::File::open(p.as_ref()).await {
                 Err(e) => Err((StatusCode::NOT_FOUND, format!("{:#}", e))),
+                Ok(file) => {
+                    let mut headers = HeaderMap::new();
+                    if let Ok(metadata) = p.as_ref().metadata() {
+                        if let Ok(value) = metadata.size().to_string().parse() {
+                            headers.insert(CONTENT_LENGTH, value);
+                        }
+                    }
+                    tracing::info!("returning {}", p.as_ref().display());
+                    // convert the `AsyncRead` into a `Stream`
+                    let stream = ReaderStream::new(file);
+                    // convert the `Stream` into an `axum::body::HttpBody`
+                    let body = StreamBody::new(stream);
+                    Ok((headers, body))
+                }
             }
         }
         Ok(None) => Err((
@@ -141,6 +137,31 @@ async fn maybe_reindex_by_build_id(cache: &Cache, buildid: &str) -> anyhow::Resu
     Ok(())
 }
 
+/// Ensures that the contained path exists, and if this is not the case
+/// replace it by `Ok(None)`
+///
+/// The tag is the kind of file this should be, to be used in error messages
+async fn and_realise<T: AsRef<std::path::Path>>(
+    result: anyhow::Result<Option<T>>,
+    tag: &str,
+) -> anyhow::Result<Option<T>> {
+    match result {
+        Ok(Some(p)) => {
+            let res = realise(p.as_ref())
+                .await
+                .with_context(|| format!("realising {} of type {}", p.as_ref().display(), tag));
+
+            if res.is_err() {
+                res.or_warn();
+                Ok(None)
+            } else {
+                Ok(Some(p))
+            }
+        }
+        other => other,
+    }
+}
+
 /// attempts to fetch debuginfo from substituters via the same API as dwarffs
 async fn maybe_fetch_debuginfo_from_substituter_index(
     cache: &Cache,
@@ -161,7 +182,9 @@ async fn maybe_fetch_debuginfo_from_substituter_index(
                     .await
                     .with_context(|| format!("indexing {}", path.display()))
                     .or_warn();
-                if let Ok(Some(_)) = cache.get_debuginfo(buildid).await {
+                if let Ok(Some(_)) =
+                    and_realise(cache.get_debuginfo(buildid).await, "debuginfo").await
+                {
                     break;
                 }
             }
@@ -179,13 +202,13 @@ async fn get_debuginfo(
     State(state): State<ServerState>,
 ) -> impl IntoResponse {
     let ready = start_indexation_and_wait(state.watcher, INDEXING_TIMEOUT).await;
-    let res = state.cache.get_debuginfo(&buildid).await;
+    let res = and_realise(state.cache.get_debuginfo(&buildid).await, "debuginfo").await;
     let res = match res {
         Ok(None) => {
             // try again harder
             tracing::debug!("{} was not in cache, reindexing online", buildid);
             match maybe_reindex_by_build_id(&state.cache, &buildid).await {
-                Ok(()) => state.cache.get_debuginfo(&buildid).await,
+                Ok(()) => and_realise(state.cache.get_debuginfo(&buildid).await, "debuginfo").await,
                 Err(e) => Err(e),
             }
         }
@@ -205,7 +228,7 @@ async fn get_debuginfo(
             )
             .await
             {
-                Ok(()) => state.cache.get_debuginfo(&buildid).await,
+                Ok(()) => and_realise(state.cache.get_debuginfo(&buildid).await, "debuginfo").await,
                 Err(e) => Err(e),
             }
         }
@@ -220,7 +243,7 @@ async fn get_executable(
     State(state): State<ServerState>,
 ) -> impl IntoResponse {
     let ready = start_indexation_and_wait(state.watcher, INDEXING_TIMEOUT).await;
-    let res = state.cache.get_executable(&buildid).await;
+    let res = and_realise(state.cache.get_executable(&buildid).await, "executable").await;
     unwrap_file(res, ready).await
 }
 
@@ -233,11 +256,11 @@ async fn fetch_and_get_source(
     cache: Cache,
 ) -> anyhow::Result<Option<SourceLocation>> {
     let source = cache.get_source(&buildid).await;
-    let source = match source {
+    let source = match and_realise(source, "source").await {
         Ok(None) => {
             // try again harder
             match maybe_reindex_by_build_id(&cache, &buildid).await {
-                Ok(()) => cache.get_source(&buildid).await,
+                Ok(()) => and_realise(cache.get_source(&buildid).await, "source").await,
                 Err(e) => Err(e),
             }
         }
@@ -245,12 +268,17 @@ async fn fetch_and_get_source(
     };
     let source = source.with_context(|| format!("getting source of {} from cache", &buildid))?;
     let source = match source {
-        None => return Ok(None),
+        None => {
+            tracing::debug!("no source found for buildid {}", &buildid);
+            return Ok(None);
+        }
         Some(x) => PathBuf::from(x),
     };
-    realise(source.as_ref())
-        .await
-        .with_context(|| format!("realizing source {}", source.display()))?;
+    tracing::debug!(
+        "found source store path for buildid {} at {}",
+        &buildid,
+        source.display()
+    );
     let file =
         tokio::task::spawn_blocking(move || get_file_for_source(source.as_ref(), request.as_ref()))
             .await?
