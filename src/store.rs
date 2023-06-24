@@ -470,27 +470,30 @@ pub fn get_file_for_source(
     if candidates.len() < 2 {
         return Ok(candidates.pop());
     }
-    let (_, mut best_candidates) = candidates.into_iter().fold(
-        (0, Vec::new()),
-        |(mut best_len, mut best_candidates), candidate| {
-            let member_path = candidate.member_path();
-            let matching_len = member_path
-                .iter()
-                .rev()
-                .zip(target.iter().rev())
-                .skip(1)
-                .position(|(ref c, t)| c != t)
-                .unwrap_or(member_path.iter().count() - 1);
-            if matching_len > best_len {
-                best_len = matching_len;
-                best_candidates.clear();
-                best_candidates.push(candidate);
-            } else if matching_len == best_len {
-                best_candidates.push(candidate);
-            }
-            (best_len, best_candidates)
-        },
-    );
+    let mut best_total_len = 0;
+    let mut best_matching_len = 0;
+    let mut best_candidates = Vec::new();
+    for candidate in candidates {
+        let member_path = candidate.member_path();
+        let total_len = member_path.iter().count();
+        let matching_len = member_path
+            .iter()
+            .rev()
+            .zip(target.iter().rev())
+            .skip(1)
+            .position(|(ref c, t)| c != t)
+            .unwrap_or(total_len - 1);
+        if matching_len > best_matching_len
+            || (matching_len == best_matching_len && total_len < best_total_len)
+        {
+            best_matching_len = matching_len;
+            best_total_len = total_len;
+            best_candidates.clear();
+            best_candidates.push(candidate);
+        } else if matching_len == best_matching_len {
+            best_candidates.push(candidate);
+        }
+    }
     if best_candidates.len() > 1 {
         anyhow::bail!(
             "cannot tell {:?} apart from {} for target {}",
