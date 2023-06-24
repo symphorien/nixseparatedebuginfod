@@ -541,7 +541,35 @@ fn get_file_for_source_different_dir() {
 }
 
 #[test]
-fn get_file_for_source_ambiguous() {
+fn get_file_for_source_regression_pr_7() {
+    let dir = make_test_source_path(vec![
+        "store/source/lib/core-net/network.c",
+        "store/source/lib/plat/optee/network.c",
+    ]);
+    let res = get_file_for_source(dir.path(), "build/source/lib/core-net/network.c".as_ref())
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        res,
+        SourceLocation::File(dir.path().join("store/source/lib/core-net/network.c"))
+    );
+}
+
+#[test]
+fn get_file_for_source_no_right_filename() {
+    let dir = make_test_source_path(vec![
+        "store/source/lib/core-net/network.c",
+        "store/source/lib/plat/optee/network.c",
+    ]);
+    let res = get_file_for_source(
+        dir.path(),
+        "build/source/lib/core-net/somethingelse.c".as_ref(),
+    );
+    assert_eq!(res.unwrap(), None);
+}
+
+#[test]
+fn get_file_for_source_glibc() {
     let dir = make_test_source_path(vec![
         "glibc-2.37/sysdeps/unix/sysv/linux/openat64.c",
         "glibc-2.37/sysdeps/mach/hurd/openat64.c",
@@ -551,10 +579,44 @@ fn get_file_for_source_ambiguous() {
         dir.path(),
         "/build/glibc-2.37/io/../sysdeps/unix/sysv/linux/openat64.c".as_ref(),
     );
+    assert_eq!(
+        res.unwrap().unwrap(),
+        SourceLocation::File(
+            dir.path()
+                .join("glibc-2.37/sysdeps/unix/sysv/linux/openat64.c")
+        )
+    );
+}
+
+#[test]
+fn get_file_for_source_misleading_dir() {
+    let dir = make_test_source_path(vec!["store/store/wrong/dir/file", "good/dir/store/file"]);
+    let res = get_file_for_source(dir.path(), "/build/project/store/file".as_ref());
+    assert_eq!(
+        res.unwrap().unwrap(),
+        SourceLocation::File(dir.path().join("good/dir/store/file"))
+    );
+}
+
+#[test]
+fn get_file_for_source_ambiguous() {
+    let sources = vec![
+        "glibc-2.37/sysdeps/unix/sysv/linux/openat64.c",
+        "glibc-2.37/sysdeps/mach/hurd/openat64.c",
+        "glibc-2.37/io/openat64.c",
+    ];
+    let dir = make_test_source_path(sources.clone());
+    let res = get_file_for_source(
+        dir.path(),
+        "/build/glibc-2.37/fakeexample/openat64.c".as_ref(),
+    );
     assert!(res.is_err());
     let msg = res.unwrap_err().to_string();
     assert!(dbg!(&msg).contains("cannot tell"));
     assert!(msg.contains("apart"));
+    for source in sources {
+        assert!(msg.contains(source));
+    }
 }
 
 /// Turns a path in the store as its topmost parent in /nix/store
