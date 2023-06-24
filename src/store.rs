@@ -10,7 +10,6 @@ use anyhow::Context;
 use object::read::Object;
 use once_cell::unsync::Lazy;
 use std::{
-    collections::HashSet,
     ffi::{OsStr, OsString},
     os::unix::prelude::{OsStrExt, OsStringExt},
     path::{Path, PathBuf},
@@ -429,8 +428,7 @@ pub fn get_file_for_source(
     request: &Path,
 ) -> anyhow::Result<Option<SourceLocation>> {
     let target: Vec<&OsStr> = request.iter().collect();
-    // invariant: we only keep candidates which have same path as target for components i..
-    let mut i = target.len() - 1;
+    // the list of all files with the right filename
     let mut candidates: Vec<_> = Vec::new();
     let source_type = source
         .metadata()
@@ -443,7 +441,7 @@ pub fn get_file_for_source(
                     continue;
                 }
                 Ok(f) => {
-                    if Some(&f.file_name()) == target.get(i) {
+                    if Some(&f.file_name()) == target.last() {
                         candidates.push(SourceLocation::File(f.path().to_path_buf()));
                     }
                 }
@@ -455,7 +453,7 @@ pub fn get_file_for_source(
         let member_list = compress_tools::list_archive_files(&mut archive)
             .with_context(|| format!("listing files in source archive {}", source.display()))?;
         for member in member_list {
-            if Path::new(&member).file_name().as_ref() == target.get(i) {
+            if Path::new(&member).file_name().as_ref() == target.last() {
                 candidates.push(SourceLocation::Archive {
                     archive: source.to_path_buf(),
                     member: PathBuf::from(member),
@@ -463,37 +461,40 @@ pub fn get_file_for_source(
             }
         }
     }
-    if candidates.len() == 0 {
-        return Ok(None);
+    if candidates.len() < 2 {
+        return Ok(candidates.pop());
     }
-    if candidates.len() == 1 {
-        return Ok(Some(candidates[0].clone()));
-    }
-    let candidates_split: HashSet<(usize, Vec<&OsStr>)> = candidates
+    // candidate paths as a vector of path components
+    let mut candidates_split: Vec<(&SourceLocation, Vec<&OsStr>)> = candidates
         .iter()
-        .map(|p| p.member_path().iter().collect())
-        .enumerate()
+        .map(|p| (p, p.member_path().iter().collect()))
         .collect();
-    let mut candidates_ref: HashSet<&(usize, Vec<&OsStr>)> = candidates_split.iter().collect();
-    while candidates_ref.len() >= 2 && i > 0 {
-        i -= 1;
-        let next: HashSet<&(usize, Vec<&OsStr>)> = candidates_ref
-            .iter()
-            .cloned()
-            .filter(|&(_, ref c)| c.get(i) == target.get(i))
-            .collect();
-        if next.len() == 0 {
+    // invariant: we only keep candidates which have same path as target for the last i components
+    let mut i = 2;
+    let mut eliminated = Vec::new();
+    while candidates_split.len() >= 2 {
+        // paths of the eliminated candidates for the error message
+        eliminated.clear();
+        // keep only candidates which are in the same (i-th starting from the end) folder as the target
+        candidates_split.retain(|(path, ref candidate)| {
+            let keep = candidate.get(candidate.len() - i) == target.get(target.len() - i);
+            if !keep {
+                eliminated.push(*path);
+            }
+            keep
+        });
+        // we eliminated all our candidates simultaneously so we don't know the right one
+        if candidates_split.len() == 0 {
             anyhow::bail!(
                 "cannot tell {:?} apart from {} for target {}",
-                &candidates_ref,
+                &eliminated,
                 &source.display(),
                 request.display()
             );
         };
-        candidates_ref = next;
+        i += 1;
     }
-    let (winner, _) = candidates_ref.iter().next().unwrap();
-    Ok(Some(candidates[*winner].clone()))
+    Ok(candidates_split.pop().map(|(path, _)| path.clone()))
 }
 
 #[cfg(test)]
@@ -532,7 +533,35 @@ fn get_file_for_source_different_dir() {
 }
 
 #[test]
-fn get_file_for_source_ambiguous() {
+fn get_file_for_source_regression_pr_7() {
+    let dir = make_test_source_path(vec![
+        "store/source/lib/core-net/network.c",
+        "store/source/lib/plat/optee/network.c",
+    ]);
+    let res = get_file_for_source(dir.path(), "build/source/lib/core-net/network.c".as_ref())
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        res,
+        SourceLocation::File(dir.path().join("store/source/lib/core-net/network.c"))
+    );
+}
+
+#[test]
+fn get_file_for_source_no_right_filename() {
+    let dir = make_test_source_path(vec![
+        "store/source/lib/core-net/network.c",
+        "store/source/lib/plat/optee/network.c",
+    ]);
+    let res = get_file_for_source(
+        dir.path(),
+        "build/source/lib/core-net/somethingelse.c".as_ref(),
+    );
+    assert_eq!(res.unwrap(), None);
+}
+
+#[test]
+fn get_file_for_source_glibc() {
     let dir = make_test_source_path(vec![
         "glibc-2.37/sysdeps/unix/sysv/linux/openat64.c",
         "glibc-2.37/sysdeps/mach/hurd/openat64.c",
@@ -542,10 +571,44 @@ fn get_file_for_source_ambiguous() {
         dir.path(),
         "/build/glibc-2.37/io/../sysdeps/unix/sysv/linux/openat64.c".as_ref(),
     );
+    assert_eq!(
+        res.unwrap().unwrap(),
+        SourceLocation::File(
+            dir.path()
+                .join("glibc-2.37/sysdeps/unix/sysv/linux/openat64.c")
+        )
+    );
+}
+
+#[test]
+fn get_file_for_source_misleading_dir() {
+    let dir = make_test_source_path(vec!["store/store/wrong/dir/file", "good/dir/store/file"]);
+    let res = get_file_for_source(dir.path(), "/build/project/store/file".as_ref());
+    assert_eq!(
+        res.unwrap().unwrap(),
+        SourceLocation::File(dir.path().join("good/dir/store/file"))
+    );
+}
+
+#[test]
+fn get_file_for_source_ambiguous() {
+    let sources = vec![
+        "glibc-2.37/sysdeps/unix/sysv/linux/openat64.c",
+        "glibc-2.37/sysdeps/mach/hurd/openat64.c",
+        "glibc-2.37/io/openat64.c",
+    ];
+    let dir = make_test_source_path(sources.clone());
+    let res = get_file_for_source(
+        dir.path(),
+        "/build/glibc-2.37/fakeexample/openat64.c".as_ref(),
+    );
     assert!(res.is_err());
     let msg = res.unwrap_err().to_string();
     assert!(dbg!(&msg).contains("cannot tell"));
     assert!(msg.contains("apart"));
+    for source in sources {
+        assert!(msg.contains(source));
+    }
 }
 
 /// Turns a path in the store as its topmost parent in /nix/store
