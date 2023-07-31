@@ -38,6 +38,7 @@ async-trait = "0.1"
 async-recursion = "1"
 axum-macros = "0.3.7"
 reqwest = { version = "0.11.18", features = [ "stream" ] }
+sd-listen-fds = { version = "0.1.0" }
 
 [dev-dependencies]
 assert_cmd = "2"

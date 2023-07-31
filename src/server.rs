@@ -7,7 +7,7 @@
 //! References:
 //! Protocol: <https://www.mankier.com/8/debuginfod#Webapi>
 
-use anyhow::Context;
+use anyhow::{anyhow, Context};
 use axum::body::StreamBody;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
@@ -15,6 +15,7 @@ use axum::response::IntoResponse;
 use axum::{routing::get, Router};
 use http::header::{HeaderMap, CONTENT_LENGTH};
 use std::collections::HashSet;
+use std::net::TcpListener;
 use std::os::unix::prelude::MetadataExt;
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -432,6 +433,17 @@ pub async fn run_server(args: Options) -> anyhow::Result<ExitCode> {
         Ok(ExitCode::SUCCESS)
     } else {
         watcher.watch_store();
+        let socket = match args.socket_activated {
+            false => TcpListener::bind(args.listen_address)?,
+            true => TcpListener::from(
+                sd_listen_fds::get()
+                    .context("finding systemd-provided socket")?
+                    .into_iter()
+                    .next()
+                    .ok_or_else(|| anyhow!("not launched by systemd socket activation"))?
+                    .1,
+            ),
+        };
         let substituters = get_substituters().await.context("listing substituters")?;
         let state = ServerState {
             watcher,
@@ -445,7 +457,7 @@ pub async fn run_server(args: Options) -> anyhow::Result<ExitCode> {
             .route("/buildid/:buildid/debuginfo", get(get_debuginfo))
             .layer(tower_http::trace::TraceLayer::new_for_http())
             .with_state(state);
-        axum::Server::bind(&args.listen_address)
+        axum::Server::from_tcp(socket)?
             .serve(app.into_make_service())
             .await?;
         Ok(ExitCode::SUCCESS)

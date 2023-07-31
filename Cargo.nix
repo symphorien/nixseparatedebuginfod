@@ -2947,6 +2947,10 @@ rec {
             features = [ "stream" ];
           }
           {
+            name = "sd-listen-fds";
+            packageId = "sd-listen-fds";
+          }
+          {
             name = "serde";
             packageId = "serde";
             features = [ "derive" ];
@@ -4466,6 +4470,16 @@ rec {
             name = "untrusted";
             packageId = "untrusted";
           }
+        ];
+
+      };
+      "sd-listen-fds" = rec {
+        crateName = "sd-listen-fds";
+        version = "0.1.0";
+        edition = "2021";
+        sha256 = "198050y4qglcagyhwfiz1nwr1iqlvkdjz2fq6mpmvzrqs0c30kfh";
+        authors = [
+          "Benjamin Saunders <ben.e.saunders@gmail.com>"
         ];
 
       };

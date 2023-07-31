@@ -20,14 +20,18 @@ in
     };
   };
   config = lib.mkIf cfg.enable {
+    systemd.sockets.nixseparatedebuginfod = {
+      listenStreams = [ url ];
+      wantedBy = [ "sockets.target" ];
+    };
     systemd.services.nixseparatedebuginfod = {
-      wantedBy = [ "multi-user.target" ];
       wants = [ "nix-daemon.service" ];
       after = [ "nix-daemon.service" ];
+      requires = [ "nixseparatedebuginfod.socket" ];
       path = [ config.nix.package ];
       serviceConfig = {
         DynamicUser = true;
-        ExecStart = [ "${pkgs.nixseparatedebuginfod}/bin/nixseparatedebuginfod -l ${url}" ];
+        ExecStart = [ "${pkgs.nixseparatedebuginfod}/bin/nixseparatedebuginfod --socket-activated" ];
         Restart = "on-failure";
         ProtectHome = "yes";
         ProtectSystem = "strict";

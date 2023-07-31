@@ -990,6 +990,7 @@ dependencies = [
  "prctl",
  "rand",
  "reqwest",
+ "sd-listen-fds",
  "serde",
  "serde_json",
  "sha2",
@@ -1473,6 +1474,12 @@ dependencies = [
  "ring",
  "untrusted",
 ]
+
+[[package]]
+name = "sd-listen-fds"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d04d3018d038ff5d6f35d8892fdbdc14c790b90d3f3a0efd538c3e4c3c2800a5"
 
 [[package]]
 name = "security-framework"

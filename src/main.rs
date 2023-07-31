@@ -31,7 +31,12 @@ pub mod substituter;
 pub struct Options {
     /// Address for the server
     #[arg(short, long, default_value = "127.0.0.1:1949")]
+    #[clap(group = "socket")]
     listen_address: SocketAddr,
+    /// Fetch the server socket from systemd socket activation
+    #[arg(long)]
+    #[clap(group = "socket")]
+    socket_activated: bool,
     /// Only index the store and quit without serving
     #[arg(short, long)]
     index_only: bool,
