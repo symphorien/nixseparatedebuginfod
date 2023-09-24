@@ -59,12 +59,11 @@ async fn main() -> anyhow::Result<ExitCode> {
     tracing_subscriber::fmt::init();
 
     // check that nix-store is present
-    let mut cmd = std::process::Command::new("nix-store");
-    cmd.arg("--version");
-    if let Err(e) = cmd.status() {
-        tracing::error!("command nix-store is not available: {}", e);
-        return Ok(ExitCode::FAILURE);
-    } else {
-        server::run_server(args).await
+    match store::detect_nix() {
+        Err(e) => {
+            tracing::error!("nix is not available: {:#}", e);
+            return Ok(ExitCode::FAILURE);
+        }
+        Ok(()) => server::run_server(args).await,
     }
 }

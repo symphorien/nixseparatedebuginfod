@@ -13,8 +13,14 @@ use std::{
     ffi::{OsStr, OsString},
     os::unix::prelude::{OsStrExt, OsStringExt},
     path::{Path, PathBuf},
+    sync::atomic::{AtomicBool, Ordering},
 };
 use tokio::sync::mpsc::Sender;
+
+/// Whether nix-store supports --query --valid-derivers (>= 2.18)
+///
+/// Set by [detect_nix].
+static NIX_STORE_QUERY_VALID_DERIVERS_SUPPORTED: AtomicBool = AtomicBool::new(false);
 
 /// attempts have this store path exist in the store
 ///
@@ -285,10 +291,12 @@ fn debuginfo_path_for(buildid: &str, debug_output: &Path) -> PathBuf {
     res
 }
 
-/// Obtains the derivation of a store path.
+/// Obtains the original deriver of a store path.
+///
+/// Corresponds to `nix-store --query --deriver`
 ///
 /// The store path must exist.
-fn get_deriver(storepath: &Path) -> anyhow::Result<Option<PathBuf>> {
+fn get_original_deriver(storepath: &Path) -> anyhow::Result<Option<PathBuf>> {
     let mut cmd = std::process::Command::new("nix-store");
     cmd.arg("--query").arg("--deriver").arg(storepath);
     tracing::debug!("Running {:?}", &cmd);
@@ -313,6 +321,101 @@ fn get_deriver(storepath: &Path) -> anyhow::Result<Option<PathBuf>> {
         anyhow::bail!("no deriver: {}", path.display());
     };
     Ok(Some(path))
+}
+
+/// Obtains a set of local derivers for a store path.
+///
+/// Corresponds to `nix-store --query --valid-derivers`
+///
+/// The store path must exist.
+///
+/// Fails if nix version is < 2.18
+fn get_valid_derivers(storepath: &Path) -> anyhow::Result<Vec<PathBuf>> {
+    let mut cmd = std::process::Command::new("nix-store");
+    cmd.arg("--query").arg("--valid-derivers").arg(storepath);
+    tracing::debug!("Running {:?}", &cmd);
+    let out = cmd.output().with_context(|| format!("running {:?}", cmd))?;
+    if !out.status.success() {
+        anyhow::bail!("{:?} failed: {}", cmd, String::from_utf8_lossy(&out.stderr));
+    }
+    let mut result = Vec::new();
+    for line in out.stdout.split(|&c| c == b'\n') {
+        if line.len() != 0 {
+            let path = PathBuf::from(OsString::from_vec(line.to_owned()));
+            if !path.is_absolute() {
+                // nix returns `unknown-deriver` when it does not know
+                anyhow::bail!(
+                    "incorrect deriver {} for {}",
+                    String::from_utf8_lossy(line),
+                    path.display()
+                );
+            };
+            result.push(path)
+        }
+    }
+    Ok(result)
+}
+
+/// Attempts to obtain any deriver for this store path, preferrably existing.
+///
+/// Corresponds to `nix-store --query --deriver` or `nix-store --query --valid-derivers.
+///
+/// The store path must exist.
+fn get_deriver(storepath: &Path) -> anyhow::Result<Option<PathBuf>> {
+    if NIX_STORE_QUERY_VALID_DERIVERS_SUPPORTED.load(Ordering::SeqCst) {
+        for path in get_valid_derivers(storepath)
+            .with_context(|| format!("getting valid deriver for {}", storepath.display()))?
+        {
+            if path.exists() {
+                return Ok(Some(path));
+            } else {
+                tracing::warn!(
+                    "nix-store --query --valid-derivers {} returned a non-existing path",
+                    storepath.display()
+                );
+            }
+        }
+    }
+    get_original_deriver(storepath)
+        .with_context(|| format!("getting original deriver for {}", storepath.display()))
+}
+
+/// Checks that nix is installed.
+///
+/// Also stores in global state whether some features only available in recent nix
+/// versions are available.
+///
+/// Should be called on startup.
+pub fn detect_nix() -> anyhow::Result<()> {
+    let mut test_path = None;
+    for entry in Path::new("/nix/store")
+        .read_dir()
+        .context("listing directoy content of /nix/store")?
+    {
+        let entry = entry.context("reading directory entry in /nix/store")?;
+        if entry.file_name().as_bytes().starts_with(b".") {
+            continue;
+        }
+        test_path = Some(entry.path());
+        break;
+    }
+    let test_path = match test_path {
+        Some(test_path) => test_path,
+        None => anyhow::bail!("/nix/store is empty, did you really install nix?"),
+    };
+    if get_valid_derivers(&test_path).is_ok() {
+        NIX_STORE_QUERY_VALID_DERIVERS_SUPPORTED.store(true, Ordering::SeqCst);
+        tracing::info!("detected nix >= 2.18");
+        return Ok(());
+    }
+    let _ = get_original_deriver(&test_path).with_context(|| {
+        format!(
+            "checking nix install by getting deriver of {}",
+            test_path.display()
+        )
+    })?;
+    tracing::warn!("detected nix < 2.18, a more recent nix is required to obtain source files in some situations.");
+    Ok(())
 }
 
 /// Obtains the debug output corresponding to this derivation

@@ -9,11 +9,15 @@ let
   };
   pkgs = import nixpkgs { };
 in
-{
+rec {
   inherit (pkgs)
     gnumake # has source in archive
     nix # has source in flat files
     python3
     python310;
   sl = pkgs.sl.overrideAttrs (_:{ separateDebugInfo = true; });
+  mailutils_drvhash1 = pkgs.mailutils;
+  mailutils_drvhash2 = mailutils_drvhash1.overrideAttrs (old: {
+    src = old.src.overrideAttrs(_: { yay=1; });
+  });
 }

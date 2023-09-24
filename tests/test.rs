@@ -3,8 +3,10 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 use assert_cmd::prelude::*;
+use std::io::{Seek, SeekFrom, Write};
+use std::os::unix::prelude::OsStrExt;
 use std::path::Path;
-use std::process::Command;
+use std::process::{Command, Stdio};
 use std::{os::unix::process::CommandExt, path::PathBuf};
 use tempfile::TempDir;
 
@@ -116,6 +118,19 @@ fn nix_build(attr: &str, output: &Path, store: Option<impl AsRef<Path>>) {
     dbg!(cmd).assert().success();
 }
 
+/// runs nix-instantiate ./tests/debugees.nix -A $attr
+fn nix_instantiate(attr: &str) -> PathBuf {
+    let mut cmd = Command::new("nix-instantiate");
+    cmd.arg(fixture("debugees.nix"));
+    cmd.arg("-A");
+    cmd.arg(attr);
+    let output = dbg!(cmd).output().unwrap();
+    let out = String::from_utf8_lossy(&output.stdout);
+    let path = PathBuf::from(dbg!(out.trim_matches(&['"', '\n'] as &[_])));
+    assert!(path.is_absolute());
+    path
+}
+
 /// runs nix copy --from ... --to ... --store ... path
 fn nix_copy(
     from: Option<impl AsRef<Path>>,
@@ -147,27 +162,98 @@ fn nix_copy(
     dbg!(cmd).assert().success();
 }
 
-fn remove_debug_output(attr: &str) {
+fn delete_path(storepath: impl AsRef<Path>) {
+    let path = storepath.as_ref();
+
+    if path.exists() {
+        // using xargs is a hack https://github.com/NixOS/nix/issues/6141#issuecomment-1476807193
+        let mut file = tempfile::tempfile().unwrap();
+        file.write_all(path.as_os_str().as_bytes()).unwrap();
+        file.write_all(b"\n").unwrap();
+        file.sync_all().unwrap();
+        file.seek(SeekFrom::Start(0)).unwrap();
+        let mut cmd = Command::new("xargs");
+        cmd.arg("--verbose");
+        cmd.arg("nix-store")
+            .arg("--delete")
+            .arg("--option")
+            .arg("auto-optimise-store")
+            .arg("false");
+        cmd.stdin(file);
+        cmd.stdout(Stdio::inherit());
+        dbg!(cmd).assert().success();
+
+        assert!(!path.exists());
+        println!("removed {}", path.display());
+    }
+}
+
+fn remove_drv_and_outputs(attr: &str) {
+    // get drv path
+    let drv_path = nix_eval_drv_path(attr);
+
+    if !drv_path.exists() {
+        return;
+    }
+
+    // get all outputs
+    let mut cmd = Command::new("nix-store");
+    cmd.arg("--query").arg("--outputs").arg(&drv_path);
+    let out = dbg!(cmd).output().unwrap();
+    let out = String::from_utf8_lossy(&out.stdout);
+    for line in out.lines() {
+        if line.len() == 0 {
+            continue;
+        }
+        let path = Path::new(line);
+        assert!(path.is_absolute());
+        // now remove the output
+        delete_path(&path);
+    }
+
+    delete_path(&drv_path);
+}
+
+/// obtains the store path of an output without creating the .drv file
+fn nix_eval_out_path(attr: &str, output: &str) -> PathBuf {
     let mut cmd = Command::new("nix-instantiate");
     cmd.arg("--eval").arg("-E").arg(format!(
-        "(import {}).{}.debug.outPath",
+        "(import {}).{}.{}.outPath",
         fixture("debugees.nix").display(),
-        attr
+        attr,
+        output,
     ));
     let out = dbg!(cmd).output().unwrap();
     let out = String::from_utf8_lossy(&out.stdout);
-    let path = Path::new(dbg!(out.trim_matches(&['"', '\n'] as &[_])));
+    let path = PathBuf::from(dbg!(out.trim_matches(&['"', '\n'] as &[_])));
     assert!(path.is_absolute());
+    path
+}
 
-    if path.exists() {
-        let mut cmd = Command::new("nix-store");
-        cmd.arg("--delete")
-            .arg("--option")
-            .arg("auto-optimise-store")
-            .arg("false")
-            .arg(path);
-        dbg!(cmd).assert().success();
-    }
+/// like nix_instantiate but does not create a .drv file
+fn nix_eval_drv_path(attr: &str) -> PathBuf {
+    let mut cmd = Command::new("nix-instantiate");
+    cmd.arg("--eval").arg("-E").arg(format!(
+        "(import {}).{}.drvPath",
+        fixture("debugees.nix").display(),
+        attr,
+    ));
+    let out = dbg!(cmd).output().unwrap();
+    let out = String::from_utf8_lossy(&out.stdout);
+    let path = PathBuf::from(dbg!(out.trim_matches(&['"', '\n'] as &[_])));
+    assert!(path.is_absolute());
+    path
+}
+
+fn realise_storepath(storepath: impl AsRef<Path>) {
+    let mut cmd = Command::new("nix-store");
+    cmd.arg("--realise").arg(storepath.as_ref());
+    dbg!(cmd).assert().success();
+}
+
+fn remove_debug_output(attr: &str) {
+    let path = nix_eval_out_path(attr, "debug");
+    delete_path(&path);
 }
 
 fn remove_debuginfo_for_builidid(buildid: &str) {
@@ -179,15 +265,7 @@ fn remove_debuginfo_for_builidid(buildid: &str) {
     for entry in std::fs::read_dir("/nix/store").unwrap() {
         let entry = entry.unwrap();
         let path = entry.path().join(&segment);
-        if path.exists() {
-            let mut cmd = Command::new("nix-store");
-            cmd.arg("--delete")
-                .arg("--option")
-                .arg("auto-optimise-store")
-                .arg("false")
-                .arg(entry.path());
-            dbg!(cmd).assert().success();
-        }
+        delete_path(&path);
     }
 }
 
@@ -227,6 +305,46 @@ fn test_normal() {
     exe.push("nix");
     let out = gdb(&t, &exe, port, "start\nl\n");
     assert!(dbg!(out).contains("389\tint main(int argc, char * * argv)"));
+
+    server.kill().unwrap();
+}
+
+#[test]
+fn test_invalid_deriver() {
+    let t = tempfile::tempdir().unwrap();
+
+    // check that nix supports --query --valid-derivers
+    let mut cmd = Command::new("nix-store");
+    cmd.arg("--query").arg("--valid-derivers");
+    if !dbg!(cmd.status()).unwrap().success() {
+        println!("skipping test_invalid_deriver, nix is too old");
+        return;
+    }
+
+    remove_drv_and_outputs("mailutils_drvhash1");
+    remove_drv_and_outputs("mailutils_drvhash2");
+
+    let outpath = nix_eval_out_path("mailutils_drvhash1", "out");
+    realise_storepath(&outpath);
+
+    // outpath has a missing deriver
+    // let's create a different one
+    nix_instantiate("mailutils_drvhash2");
+
+    populate_cache(&t);
+
+    // start a server that can't fetch from hydra
+    let (port, mut server) = spawn_server(&t, Some(vec![]));
+
+    // check that the server can use the deriver of mailutils_drvhash2 instead of
+    // the deriver returned by hydra (mailutils_drvhash1)
+    let out = gdb(
+        &t,
+        outpath.join("bin/mailutils").as_ref(),
+        port,
+        "start\nl\n",
+    );
+    assert!(dbg!(out).contains("156\tmain (int argc, char **argv)"));
 
     server.kill().unwrap();
 }
