@@ -161,7 +161,11 @@ fn remove_debug_output(attr: &str) {
 
     if path.exists() {
         let mut cmd = Command::new("nix-store");
-        cmd.arg("--delete").arg(path);
+        cmd.arg("--delete")
+            .arg("--option")
+            .arg("auto-optimise-store")
+            .arg("false")
+            .arg(path);
         dbg!(cmd).assert().success();
     }
 }
@@ -177,7 +181,11 @@ fn remove_debuginfo_for_builidid(buildid: &str) {
         let path = entry.path().join(&segment);
         if path.exists() {
             let mut cmd = Command::new("nix-store");
-            cmd.arg("--delete").arg(entry.path());
+            cmd.arg("--delete")
+                .arg("--option")
+                .arg("auto-optimise-store")
+                .arg("false")
+                .arg(entry.path());
             dbg!(cmd).assert().success();
         }
     }
