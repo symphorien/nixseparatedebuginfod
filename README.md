@@ -21,7 +21,7 @@ A NixOS module is provided for your convenience in `./module.nix`. It provides t
 services.nixseparatedebuginfod.enable = true;
 ```
 
-This option installs a version of `gdb` compiled with `debuginfod` support, so you should uninstall `gdb` from other sources (`nix-env`, `home-manager`).
+On NixOS &lt; 23.05, this option installs a version of `gdb` compiled with `debuginfod` support, so you should uninstall `gdb` from other sources (`nix-env`, `home-manager`).
 As the module sets an environment variable, you need to log out/log in again or reboot for it to work.
 
 #### Pure stable nix
@@ -191,6 +191,8 @@ Downloading 0.01 MB source file /build/source/src/nix/main.cc
 - Source fetching does not work when only the `dwarffs` can be used.
 - If a derivation patches a source file before compiling it, `nixseparatedebuginfod` will serve the unpatched source file straight from the `src` attribute of the derivation.
 - The `section` endpoint of the `debuginfod` protocol is not implemented. (If you know of some client that uses it, tell me).
+- Nix &gt;= 2.18 is required to fetch sources successfully in some situations (notably
+when the program was fetched from hydra long after it was built).
 
 ## Comparison to other ways to provide debug symbols
 - the `environment.enableDebugInfo = true;` NixOS option only provides debug symbols for software installed in `environment.systemPackages`, but not inner libraries. As a result you will get debug symbols for `qemu`, but not for the `glibc` it uses. It also downloads debug symbols even if you end up not using them, and `qemu` debug symbols take very long to download...

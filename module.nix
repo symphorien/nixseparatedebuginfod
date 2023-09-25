@@ -7,6 +7,13 @@ let
   cfg = config.services.nixseparatedebuginfod;
   url = "127.0.0.1:${toString cfg.port}";
   maybeAdd = x: list: if builtins.elem x list then list else list ++ [ x ];
+  recentNix = lib.lists.findFirst (nix: nix != null && lib.versionAtLeast
+  nix.version "2.18") config.nix.package [
+    config.nix.package
+    pkgs.nix
+    ((pkgs.nixVersions or {}).nix_2_18 or null)
+    pkgs.nixUnstable
+  ];
 in
 {
   options = {
@@ -24,7 +31,7 @@ in
       wantedBy = [ "multi-user.target" ];
       wants = [ "nix-daemon.service" ];
       after = [ "nix-daemon.service" ];
-      path = [ config.nix.package ];
+      path = [ recentNix ];
       serviceConfig = {
         DynamicUser = true;
         ExecStart = [ "${pkgs.nixseparatedebuginfod}/bin/nixseparatedebuginfod -l ${url}" ];
