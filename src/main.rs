@@ -17,6 +17,12 @@ use std::{net::SocketAddr, process::ExitCode};
 
 use clap::Parser;
 
+use tikv_jemallocator::Jemalloc;
+
+// makes RSS decrease after initial indexation, and decreases peak RSS during indexation
+#[global_allocator]
+static GLOBAL: Jemalloc = Jemalloc;
+
 pub mod config;
 pub mod db;
 pub mod index;
