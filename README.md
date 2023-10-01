@@ -215,14 +215,14 @@ To make `nixseparatedebuginfod` less verbose, export `RUST_LOG=warn` or `RUST_LO
 
 ## Troubleshooting
 
-If `nixseparatedebuginfod` fails to start because the nix daemon resets the connection like this:
+If you do not use the provided NixOS module and `nixseparatedebuginfod` fails to start because the nix daemon resets the connection like this:
 ```
 2023-09-25T21:48:52.750 5006851216 nix-daemon.service nix-daemon[216134] INFO error: error processing connection: user 'nixseparatedebuginfod' is not allowed to connect to the Nix daemon
 2023-09-25T21:48:52.752 5006852674 nixseparatedebuginfod.service nixseparatedebuginfod[216414] INFO 2023-09-25T19:48:52.752187Z ERROR nixseparatedebuginfod: nix is not available: checking nix install by getting deriver of /nix/store/9krlzvny65gdc8s7kpb6lkx8cd02c25b-default-builder.sh: "nix-store" "--query" "--deriver" "/nix/store/9krlzvny65gdc8s7kpb6lkx8cd02c25b-default-builder.sh" failed: error: cannot open connection to remote store 'daemon': error: reading from file: Connection reset by peer
 ```
 then you probably have restricted access to the daemon to specific users, for example
-with `nix.settings.allowed-users = [ "@somegroup" ];`. Add `nixseparatedebuginfod` to
-this list. You can check that the setting had effect with `nix show-config`.
+with `nix.settings.allowed-users = [ "@somegroup" ];`. Add the user `nixseparatedebuginfod` runs as
+to this list. You can check that the setting had effect with `nix show-config`.
 
 ## References
 Protocol: <https://www.mankier.com/8/debuginfod#Webapi>

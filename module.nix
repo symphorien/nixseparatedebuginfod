@@ -24,6 +24,11 @@ in
         default = 1949;
         type = lib.types.port;
       };
+      allowUser = lib.mkOption {
+        description = "set this option to true when you set the nix configuration option `allowed-users` to something else than `*`.";
+        default = false;
+        type = lib.types.bool;
+      };
     };
   };
   config = lib.mkIf cfg.enable {
@@ -33,14 +38,41 @@ in
       after = [ "nix-daemon.service" ];
       path = [ recentNix ];
       serviceConfig = {
-        DynamicUser = true;
+        # nix does not like DynamicUsers in allowed-users
+        DynamicUser = !cfg.allowUser;
         ExecStart = [ "${pkgs.nixseparatedebuginfod}/bin/nixseparatedebuginfod -l ${url}" ];
         Restart = "on-failure";
         ProtectHome = "yes";
         ProtectSystem = "strict";
         CacheDirectory = "nixseparatedebuginfod";
+        PrivateTmp = true;
+      } // lib.optionalAttrs cfg.allowUser {
+        User = "nixseparatedebuginfod";
+        Group = "nixseparatedebuginfod";
       };
     };
+
+    users.users = lib.mkIf cfg.allowUser {
+      nixseparatedebuginfod = {
+        isSystemUser = true;
+        group = "nixseparatedebuginfod";
+      };
+    };
+    users.groups = lib.mkIf cfg.allowUser {
+      nixseparatedebuginfod = { };
+    };
+
+    # unfortunately we cannot do that unconditionally, because that would
+    # overwrite the default of *. Hence the indirection through cfg.allowUser
+    # and the assertion.
+    nix.settings = lib.mkIf cfg.allowUser {
+      allowed-users = [ "nixseparatedebuginfod" ];
+    };
+
+    assertions = [{
+      assertion = cfg.allowUser == !(lib.lists.all (elt: elt == "*" || elt == "nixseparatedebuginfod") (config.nix.settings.allowed-users or [ ]));
+      message = "nix.settings.allowed-users is ${if cfg.allowUser then "unset" else "set"}. you must set services.nixseparatedebuginfod.allowUser to ${if cfg.allowUser then "false" else "true"}.";
+    }];
 
     environment.variables.DEBUGINFOD_URLS = "http://${url}";
 
