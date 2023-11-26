@@ -4,6 +4,10 @@ SPDX-FileCopyrightText: 2023 Guillaume Girol <symphorien+git@xlumurb.eu>
 SPDX-License-Identifier: CC0-1.0
 -->
 
+# `v0.3.0`
+* handle better installs with non-trivial `allowed-users` nix option
+* systemd hardening
+
 # `v0.2.0`
 - switch to jemalloc for significantly decreased peak RSS during indexation
 - use nix-store --query --valid-derivers when possible
