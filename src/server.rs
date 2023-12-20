@@ -432,7 +432,13 @@ pub async fn run_server(args: Options) -> anyhow::Result<ExitCode> {
         Ok(ExitCode::SUCCESS)
     } else {
         watcher.watch_store();
-        let substituters = get_substituters().await.context("listing substituters")?;
+        let substituters = match get_substituters().await {
+            Ok(l) => l,
+            Err(e) => {
+                tracing::warn!("could not determine the list of substituters: {e:#}");
+                vec![]
+            }
+        };
         let state = ServerState {
             watcher,
             cache,
