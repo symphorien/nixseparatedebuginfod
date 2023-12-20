@@ -4,6 +4,10 @@ SPDX-FileCopyrightText: 2023 Guillaume Girol <symphorien+git@xlumurb.eu>
 SPDX-License-Identifier: CC0-1.0
 -->
 
+# `v0.3.1`
+
+* don't crash on startup with nix 2.3
+
 # `v0.3.0`
 * handle better installs with non-trivial `allowed-users` nix option
 * systemd hardening
