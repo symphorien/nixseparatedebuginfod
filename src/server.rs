@@ -25,7 +25,7 @@ use tokio_util::io::ReaderStream;
 use crate::db::Cache;
 use crate::index::{index_single_store_path_to_cache, StoreWatcher};
 use crate::log::ResultExt;
-use crate::store::{get_file_for_source, get_store_path, realise, SourceLocation};
+use crate::store::{demangle, get_file_for_source, get_store_path, realise, SourceLocation};
 use crate::substituter::{FileSubstituter, HttpSubstituter, Substituter};
 use crate::Options;
 
@@ -324,13 +324,27 @@ async fn uncompress_archive_file_to_http_body(
 
 #[axum_macros::debug_handler]
 async fn get_source(
-    Path(param): Path<(String, String)>,
+    Path((buildid, request)): Path<(String, String)>,
     State(state): State<ServerState>,
 ) -> impl IntoResponse {
+    // when gdb attempts to show the source of a function that comes
+    // from a header in another library, the request is store path made
+    // relative to /
+    // in this case, let's fetch it
+    if request.starts_with("nix/store") {
+        let absolute = PathBuf::from("/").join(request);
+        let demangled = demangle(absolute);
+        let error = realise(&demangled)
+            .await
+            .with_context(|| format!("downloading source {}", demangled.display()));
+        return unwrap_file(error.map(|()| Some(demangled)), true)
+            .await
+            .into_response();
+    }
+    // as a fallback, have a look at the source of the buildid
     let ready = start_indexation_and_wait(state.watcher, INDEXING_TIMEOUT).await;
-    let path: &str = &param.1;
-    let request = PathBuf::from(path);
-    let sourcefile = fetch_and_get_source(param.0.to_owned(), request, state.cache).await;
+    let request = PathBuf::from(request);
+    let sourcefile = fetch_and_get_source(buildid.to_owned(), request, state.cache).await;
     let response = match sourcefile {
         Ok(Some(SourceLocation::File(path))) => match tokio::fs::File::open(&path).await {
             Err(e) => Err((
@@ -375,7 +389,7 @@ async fn get_source(
     if let Err((code, error)) = &response {
         tracing::info!("Responding error {}: {}", code, error);
     };
-    response
+    response.into_response()
 }
 
 async fn get_section(Path(_param): Path<(String, String)>) -> impl IntoResponse {
