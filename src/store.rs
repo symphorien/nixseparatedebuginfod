@@ -22,6 +22,8 @@ use tokio::sync::mpsc::Sender;
 /// Set by [detect_nix].
 static NIX_STORE_QUERY_VALID_DERIVERS_SUPPORTED: AtomicBool = AtomicBool::new(false);
 
+const NIX_STORE: &'static str = "/nix/store";
+
 /// attempts have this store path exist in the store
 ///
 /// if the path already exists, do nothing
@@ -523,6 +525,55 @@ pub fn get_buildid(path: &Path) -> anyhow::Result<Option<String>> {
             Ok(Some(buildid))
         }
     }
+}
+
+/// To remove references, gcc is patched to replace the hash part
+/// of store path by an uppercase version in debug symbols.
+///
+/// Store paths are embedded in debug symbols for example as the location
+/// of template instantiation from libraries that live in other derivations.
+///
+/// This function undoes the mangling.
+pub fn demangle(storepath: PathBuf) -> PathBuf {
+    if !storepath.starts_with(NIX_STORE) {
+        return storepath;
+    }
+    let mut as_bytes = storepath.into_os_string().into_vec();
+    let len = as_bytes.len();
+    let store_len = NIX_STORE.as_bytes().len();
+    as_bytes[len.min(store_len + 1)..len.min(store_len + 1 + 32)].make_ascii_lowercase();
+    OsString::from_vec(as_bytes).into()
+}
+
+#[test]
+fn test_demangle_nominal() {
+    assert_eq!(demangle(PathBuf::from("/nix/store/JW65XNML1FGF4BFGZGISZCK3LFJWXG6L-GCC-12.3.0/include/c++/12.3.0/bits/vector.tcc")), PathBuf::from("/nix/store/jw65xnml1fgf4bfgzgiszck3lfjwxg6l-GCC-12.3.0/include/c++/12.3.0/bits/vector.tcc"));
+}
+
+#[test]
+fn test_demangle_noop() {
+    assert_eq!(demangle(PathBuf::from("/nix/store/jw65xnml1fgf4bfgzgiszck3lfjwxg6l-gcc-12.3.0/include/c++/12.3.0/bits/vector.tcc")), PathBuf::from("/nix/store/jw65xnml1fgf4bfgzgiszck3lfjwxg6l-gcc-12.3.0/include/c++/12.3.0/bits/vector.tcc"));
+}
+
+#[test]
+fn test_demangle_empty() {
+    assert_eq!(demangle(PathBuf::from("/")), PathBuf::from("/"));
+}
+
+#[test]
+fn test_demangle_incomplete() {
+    assert_eq!(
+        demangle(PathBuf::from("/nix/store/JW65XNML1FGF4B")),
+        PathBuf::from("/nix/store/jw65xnml1fgf4b")
+    );
+}
+
+#[test]
+fn test_demangle_non_storepaht() {
+    assert_eq!(
+        demangle(PathBuf::from("/build/src/FOO.C")),
+        PathBuf::from("/build/src/FOO.C")
+    );
 }
 
 /// Attempts to find a file that matches the request in an existing source path.
