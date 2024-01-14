@@ -14,9 +14,15 @@ Most software in `nixpkgs` is stripped, so hard to debug. But some key packages 
 
 ## Setup
 
+[![Packaging status](https://repology.org/badge/vertical-allrepos/nixseparatedebuginfod.svg)](https://repology.org/project/nixseparatedebuginfod/versions)
+
 ### On NixOS
 
-A NixOS module is provided for your convenience in `./module.nix`. It provides the following main option:
+A NixOS module is provided for your convenience:
+- directly upstream in NixOS &ge; 24.05
+- in `./module.nix` in this repo for older versions of NixOS.
+
+The module provides the following main option:
 ```nix
 services.nixseparatedebuginfod.enable = true;
 ```
@@ -24,7 +30,22 @@ services.nixseparatedebuginfod.enable = true;
 On NixOS &lt; 23.05, this option installs a version of `gdb` compiled with `debuginfod` support, so you should uninstall `gdb` from other sources (`nix-env`, `home-manager`).
 As the module sets an environment variable, you need to log out/log in again or reboot for it to work.
 
-#### Pure stable nix
+#### NixOS &ge; 24.05
+
+Modify `/etc/nixos/configuration.nix` as follows:
+
+```nix
+{config, pkgs, lib, ...}: {
+  config = {
+    /*
+    ... existing options ...
+    */
+    services.nixseparatedebuginfod.enable = true;
+  };
+}
+```
+
+#### Pure stable nix, NixOS &lt; 24.05
 
 Add the module to the `imports` section of `/etc/nixos/configuration.nix`:
 ```nix
@@ -42,7 +63,7 @@ Add the module to the `imports` section of `/etc/nixos/configuration.nix`:
 ```
 (adapt the revision and sha256 to a recent one).
 
-#### With [niv](https://github.com/nmattia/niv)
+#### With [niv](https://github.com/nmattia/niv); NixOS &lt; 24.05
 
 Run `niv add github symphorien/nixseparatedebuginfod` and add to the `imports` section of `/etc/nixos/configuration.nix`:
 ```nix
@@ -56,7 +77,7 @@ Run `niv add github symphorien/nixseparatedebuginfod` and add to the `imports` s
 }
 ```
 
-#### With flakes
+#### With flakes; NixOS &lt 24.05
 
 If you use flakes, modify your `/etc/nixos/flake.nix` as in this example:
 
