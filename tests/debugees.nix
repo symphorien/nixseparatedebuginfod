@@ -13,6 +13,7 @@ rec {
   inherit (pkgs)
     gnumake # has source in archive
     nix # has source in flat files
+    nlohmann_json
     python3
     python310;
   sl = pkgs.sl.overrideAttrs (_:{ separateDebugInfo = true; });
