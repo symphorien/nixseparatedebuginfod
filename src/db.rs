@@ -71,20 +71,20 @@ async fn populate_pool(pool: &SqlitePool) -> anyhow::Result<()> {
         .await
         .context("opening transaction to set schema on cache db")?;
     sqlx::query(SCHEMA)
-        .execute(&mut transaction)
+        .execute(&mut *transaction)
         .await
         .context("setting schema on cache db")?;
     sqlx::query("insert into version values ($1);")
         .bind(get_schema_version())
-        .execute(&mut transaction)
+        .execute(&mut *transaction)
         .await
         .context("setting schema version on cache db")?;
     sqlx::query("insert into gc values (0);")
-        .execute(&mut transaction)
+        .execute(&mut *transaction)
         .await
         .context("setting schema default timestamps on cache db")?;
     sqlx::query("insert into id values (0);")
-        .execute(&mut transaction)
+        .execute(&mut *transaction)
         .await
         .context("setting schema default next id on cache db")?;
     transaction.commit().await?;
@@ -226,7 +226,7 @@ impl Cache {
             .bind(&entry.executable)
             .bind(&entry.debuginfo)
             .bind(&entry.source)
-            .execute(&mut transaction)
+            .execute(&mut *transaction)
             .await
             .context("inserting build")?;
         }
