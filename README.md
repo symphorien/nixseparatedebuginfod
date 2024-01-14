@@ -77,7 +77,7 @@ Run `niv add github symphorien/nixseparatedebuginfod` and add to the `imports` s
 }
 ```
 
-#### With flakes; NixOS &lt 24.05
+#### With flakes; NixOS &lt; 24.05
 
 If you use flakes, modify your `/etc/nixos/flake.nix` as in this example:
 
