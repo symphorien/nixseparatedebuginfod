@@ -9,5 +9,5 @@ in
   nixseparatedebuginfod.overrideAttrs ({name, ...}: {
     name = name + "-" + channel;
   })
-  ) [ "nixos-unstable" "nixos-22.11" ]
+  ) [ "nixos-unstable" "nixos-23.11" ]
 
