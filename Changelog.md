@@ -4,6 +4,10 @@ SPDX-FileCopyrightText: 2023 Guillaume Girol <symphorien+git@xlumurb.eu>
 SPDX-License-Identifier: CC0-1.0
 -->
 
+# `v0.3.3`
+
+* handle sources inlined from another derivation (for example C++ template instantiation). Related: nixpkgs PR 279455
+
 # `v0.3.2`
 
 * fix version number in v0.3.1
