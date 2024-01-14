@@ -178,6 +178,11 @@ async fn maybe_fetch_debuginfo_from_substituter_index(
             ),
             Ok(None) => (),
             Ok(Some(path)) => {
+                tracing::info!(
+                    "fetched {} from substituter {}, now indexing it",
+                    path.display(),
+                    substituter.url()
+                );
                 index_single_store_path_to_cache(cache, &path, false)
                     .await
                     .with_context(|| format!("indexing {}", path.display()))
