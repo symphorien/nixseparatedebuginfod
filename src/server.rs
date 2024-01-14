@@ -8,7 +8,7 @@
 //! Protocol: <https://www.mankier.com/8/debuginfod#Webapi>
 
 use anyhow::Context;
-use axum::body::StreamBody;
+use axum::body::Body;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
@@ -67,7 +67,7 @@ async fn unwrap_file<T: AsRef<std::path::Path>>(
                     // convert the `AsyncRead` into a `Stream`
                     let stream = ReaderStream::new(file);
                     // convert the `Stream` into an `axum::body::HttpBody`
-                    let body = StreamBody::new(stream);
+                    let body = Body::from_stream(stream);
                     Ok((headers, body))
                 }
             }
@@ -324,7 +324,7 @@ async fn uncompress_archive_file_to_http_body(
         }
     };
     tokio::spawn(decompressor_future);
-    Ok(StreamBody::new(streamreader))
+    Ok(Body::from_stream(streamreader))
 }
 
 #[axum_macros::debug_handler]
@@ -367,7 +367,7 @@ async fn get_source(
                 // convert the `AsyncRead` into a `Stream`
                 let stream = ReaderStream::new(file);
                 // convert the `Stream` into an `axum::body::HttpBody`
-                let body = StreamBody::new(stream);
+                let body = Body::from_stream(stream);
                 Ok((headers, body).into_response())
             }
         },
@@ -470,9 +470,10 @@ pub async fn run_server(args: Options) -> anyhow::Result<ExitCode> {
             .route("/buildid/:buildid/debuginfo", get(get_debuginfo))
             .layer(tower_http::trace::TraceLayer::new_for_http())
             .with_state(state);
-        axum::Server::bind(&args.listen_address)
-            .serve(app.into_make_service())
-            .await?;
+        let listener = tokio::net::TcpListener::bind(&args.listen_address)
+            .await
+            .with_context(|| format!("opening listen socket on {}", &args.listen_address))?;
+        axum::serve::serve(listener, app.into_make_service()).await?;
         Ok(ExitCode::SUCCESS)
     }
 }
