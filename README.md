@@ -214,6 +214,7 @@ Downloading 0.01 MB source file /build/source/src/nix/main.cc
 - The `section` endpoint of the `debuginfod` protocol is not implemented. (If you know of some client that uses it, tell me).
 - Nix &gt;= 2.18 is required to fetch sources successfully in some situations (notably
 when the program was fetched from hydra long after it was built).
+- Software compiled with the `stdenv` of NixOS 23.11 has mangled debug symbols where the store path of the source of in-lined functions/template instantiations is replaced by `/nix/store/eeeeee...`. These source files will not be fetched by `nixseparatedebuginfod`. The issue will be fixed in NixOS 24.05.
 
 ## Comparison to other ways to provide debug symbols
 - the `environment.enableDebugInfo = true;` NixOS option only provides debug symbols for software installed in `environment.systemPackages`, but not inner libraries. As a result you will get debug symbols for `qemu`, but not for the `glibc` it uses. It also downloads debug symbols even if you end up not using them, and `qemu` debug symbols take very long to download...
