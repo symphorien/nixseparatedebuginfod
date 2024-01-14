@@ -19,7 +19,7 @@ use anyhow::Context;
 use async_recursion::async_recursion;
 use async_trait::async_trait;
 use futures_util::StreamExt;
-use http::StatusCode;
+use reqwest::StatusCode;
 use reqwest::Url;
 use serde::Deserialize;
 use tempfile::TempDir;
