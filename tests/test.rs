@@ -299,12 +299,28 @@ fn test_normal() {
     // nix has source in flat files
     let output: PathBuf = file_in(&t, "nix");
     nix_build("nix", &output, None::<PathBuf>);
+    // we will test fetching the source of a template instantiation from a header-only library
+    // disabled until nix bin output drops its reference to nlohmann_json
+    /*
+    let nlohmann_json = nix_eval_out_path("nlohmann_json", "out");
+    delete_path(&nlohmann_json);
+    */
 
     let mut exe = output;
     exe.push("bin");
     exe.push("nix");
-    let out = gdb(&t, &exe, port, "start\nl\n");
-    assert!(dbg!(out).contains("389\tint main(int argc, char * * argv)"));
+    // test that gdb can show the source of main (in nix)
+    // and the source of an inlined template (from nlohmann_json)
+    let out = gdb(
+        &t,
+        &exe,
+        port,
+        "start\nl\nl nlohmann::detail::output_stream_adapter<char>::write_character(char)\n",
+    );
+    // gdb fetched the source of main()
+    assert!(dbg!(&out).contains("389\tint main(int argc, char * * argv)"));
+    // and fetched the source of a template instantiation in a header-only lib
+    assert!(out.contains("73\t    void write_character(CharType c) override"));
 
     server.kill().unwrap();
 }
