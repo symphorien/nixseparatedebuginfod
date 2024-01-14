@@ -223,7 +223,10 @@ when the program was fetched from hydra long after it was built).
 
 ## Security
 
-Normal operation uses `nix-*` commands and is subject to the normal nix control of substituter trust and NAR signing. When the `.drv` file of a store path is not found, `nixseparatedebuginfod` will fall back to same API as `dwarffs`. It serves NARs with debug symbols without signatures. This means that `nixseparatedebuginfod` may add NARs from any `file`, `http` and `https` substituters (trusted or not) in the output of `nix show-config` to your store without checking signatures.
+Normal operation uses `nix-*` commands and is subject to the normal nix control of substituter trust and NAR signing. However, anything that can connect to `nixseparatedebuginfod` gets some of the privilege of `nixseparatedebuginfod`: if you prohibit some users from using nix with the `allowed-users` option, these users can use `nixseparatedebuginfod` to
+- add files from binary caches into your store,
+- build existing `.drv` files, but not create new ones.
+When the `.drv` file of a store path is not found, `nixseparatedebuginfod` will fall back to same API as `dwarffs`. It serves NARs with debug symbols without signatures. This means that `nixseparatedebuginfod` may add NARs from any `file`, `http` and `https` substituters (trusted or not) in the output of `nix show-config` to your store without checking signatures.
 
 ## Notes
 
