@@ -49,7 +49,7 @@ fn get_schema_version() -> u32 {
     u32::from_le_bytes(hash[0..4].try_into().unwrap())
 }
 
-/// Checks wether this db has the right schema version
+/// Checks whether this db has the right schema version
 async fn pool_is_valid(pool: &SqlitePool) -> anyhow::Result<()> {
     let row = sqlx::query("select version from version")
         .fetch_one(pool)

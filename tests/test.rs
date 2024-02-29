@@ -256,7 +256,7 @@ fn remove_debug_output(attr: &str) {
     delete_path(path);
 }
 
-fn remove_debuginfo_for_builidid(buildid: &str) {
+fn remove_debuginfo_for_buildid(buildid: &str) {
     let segment = format!(
         "lib/debug/.build-id/{}/{}.debug",
         &buildid[..2],
@@ -367,7 +367,7 @@ fn test_invalid_deriver() {
 
 #[test]
 fn test_hydra_api_file() {
-    remove_debuginfo_for_builidid("10deef1d1c1e79a27c25e9636d652ca3b99dc3f5");
+    remove_debuginfo_for_buildid("10deef1d1c1e79a27c25e9636d652ca3b99dc3f5");
     let t = tempfile::tempdir().unwrap();
     let store = file_in(&t, "store");
 
@@ -402,7 +402,7 @@ fn test_hydra_api_file() {
 
 #[test]
 fn test_hydra_api_https() {
-    remove_debuginfo_for_builidid("78218dee9fd3709104f6521a2c5507fb0a5732b2");
+    remove_debuginfo_for_buildid("78218dee9fd3709104f6521a2c5507fb0a5732b2");
     let t = tempfile::tempdir().unwrap();
     let store = file_in(&t, "store");
 

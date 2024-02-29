@@ -55,7 +55,7 @@ async fn main() -> anyhow::Result<ExitCode> {
     if std::env::var_os("RUST_LOG").is_none() {
         std::env::set_var(
             "RUST_LOG",
-            "nixseparatedebuginfo=info,tower_http=debug,sqlx=warn,warn",
+            "nixseparatedebuginfod=info,tower_http=debug,sqlx=warn,warn",
         )
     }
     let args = Options::parse();

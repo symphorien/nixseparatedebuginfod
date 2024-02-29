@@ -90,7 +90,7 @@ async fn unwrap_file<T: AsRef<std::path::Path>>(
 
 /// Start indexation, and wait for it to complete until timeout.
 ///
-/// Returns wether indexation is complete.
+/// Returns whether indexation is complete.
 async fn start_indexation_and_wait(watcher: StoreWatcher, timeout: Duration) -> bool {
     match watcher.maybe_index_new_paths().await {
         Err(e) => {

@@ -358,7 +358,7 @@ fn get_valid_derivers(storepath: &Path) -> anyhow::Result<Vec<PathBuf>> {
     Ok(result)
 }
 
-/// Attempts to obtain any deriver for this store path, preferrably existing.
+/// Attempts to obtain any deriver for this store path, preferably existing.
 ///
 /// Corresponds to `nix-store --query --deriver` or `nix-store --query --valid-derivers.
 ///
@@ -392,7 +392,7 @@ pub fn detect_nix() -> anyhow::Result<()> {
     let mut test_path = None;
     for entry in Path::new("/nix/store")
         .read_dir()
-        .context("listing directoy content of /nix/store")?
+        .context("listing directory content of /nix/store")?
     {
         let entry = entry.context("reading directory entry in /nix/store")?;
         if entry.file_name().as_bytes().starts_with(b".") {
@@ -569,7 +569,7 @@ fn test_demangle_incomplete() {
 }
 
 #[test]
-fn test_demangle_non_storepaht() {
+fn test_demangle_non_storepath() {
     assert_eq!(
         demangle(PathBuf::from("/build/src/FOO.C")),
         PathBuf::from("/build/src/FOO.C")
