@@ -374,7 +374,7 @@ async fn get_source(
         Ok(Some(SourceLocation::Archive {
             ref archive,
             ref member,
-        })) => match uncompress_archive_file_to_http_body(&archive, &member).await {
+        })) => match uncompress_archive_file_to_http_body(archive, member).await {
             Ok(r) => {
                 tracing::info!("returning {} from {}", member.display(), archive.display());
                 Ok(r.into_response())
@@ -408,8 +408,8 @@ async fn get_substituters() -> anyhow::Result<Vec<Box<dyn Substituter>>> {
     let mut urls = HashSet::new();
     for key in &["substituters", "trusted-substituters"] {
         let several = config.get(*key).map(|s| s.as_str()).unwrap_or("");
-        for word in several.split(" ") {
-            if word.len() != 0 {
+        for word in several.split(' ') {
+            if !word.is_empty() {
                 urls.insert(word);
             }
         }
