@@ -88,7 +88,11 @@ in
 
     users.groups.nixseparatedebuginfod = { };
 
-    nix.settings.extra-allowed-users = [ "nixseparatedebuginfod" ];
+    # extra- settings were introduced in nix 2.4
+    # sorry for those who use 2.3
+    nix.settings = lib.optionalAttrs (lib.versionAtLeast config.nix.package.version "2.4") {
+      extra-allowed-users = [ "nixseparatedebuginfod" ];
+    };
 
     environment.variables.DEBUGINFOD_URLS = "http://${url}";
 
