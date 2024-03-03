@@ -17,6 +17,7 @@ mkShell {
     reuse
     cargo-license
     cargo-outdated
+    cargo-nextest
   ]
   ++ lib.optionals (!gdb.meta.unsupported) [gdb];
   buildInputs = [ libarchive ];

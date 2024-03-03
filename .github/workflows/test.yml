@@ -1,0 +1,18 @@
+name: "Test"
+on:
+  pull_request:
+  push:
+# Make sure CI fails on all warnings, including Clippy lints
+env:
+  RUSTFLAGS: "-Dwarnings"
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2.5.0
+    - name: Install Nix
+      uses: DeterminateSystems/nix-installer-action@v9
+    - name: Run the Magic Nix Cache
+      uses: DeterminateSystems/magic-nix-cache-action@v2
+    - run: nix-build test.nix
+    - run: nix-shell -I nixpkgs=channel:nixos-23.11 --run "cargo clippy && cargo nextest run --profile ci"
