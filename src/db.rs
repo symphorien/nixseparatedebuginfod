@@ -40,7 +40,7 @@ pub struct Cache {
     sqlite: SqlitePool,
 }
 /// The schema of the sqlite db backing [Cache].
-const SCHEMA: &'static str = include_str!("./schema.sql");
+const SCHEMA: &str = include_str!("./schema.sql");
 
 fn get_schema_version() -> u32 {
     let mut hasher = sha2::Sha256::new();
@@ -49,7 +49,7 @@ fn get_schema_version() -> u32 {
     u32::from_le_bytes(hash[0..4].try_into().unwrap())
 }
 
-/// Checks wether this db has the right schema version
+/// Checks whether this db has the right schema version
 async fn pool_is_valid(pool: &SqlitePool) -> anyhow::Result<()> {
     let row = sqlx::query("select version from version")
         .fetch_one(pool)
@@ -208,7 +208,7 @@ impl Cache {
     /// Only one of the each entry fields is stored for each buildid, if register is called several times
     /// for a single buildid, only the latest `Some` provided one is retained.
     pub async fn register(&self, entries: &[Entry]) -> anyhow::Result<()> {
-        if entries.len() == 0 {
+        if entries.is_empty() {
             return Ok(());
         }
         let mut transaction = self.sqlite.begin().await.context("transaction sqlite")?;
@@ -253,8 +253,7 @@ impl Cache {
             .fetch_one(&self.sqlite)
             .await
             .context("reading next registered id in cache db")?;
-        Ok(row
-            .try_get("next")
-            .context("parsing next registered id from cache db")?)
+        row.try_get("next")
+            .context("parsing next registered id from cache db")
     }
 }

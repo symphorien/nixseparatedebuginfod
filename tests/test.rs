@@ -39,14 +39,14 @@ fn wait_for_port(port: u16) {
 /// as these go through the daemon
 fn spawn_server(t: &TempDir, substituters: Option<Vec<&str>>) -> (u16, std::process::Child) {
     let port: u16 = 3000 + rand::random::<u8>() as u16;
-    let mut cmd = nixseparatedebuginfod(&t);
+    let mut cmd = nixseparatedebuginfod(t);
     cmd.arg("-l");
     cmd.arg(format!("127.0.0.1:{port}"));
     suicide(&mut cmd);
     if let Some(substituters) = substituters {
-        let nix_conf = file_in(&t, "nix.conf");
+        let nix_conf = file_in(t, "nix.conf");
         let substituters_as_str = &substituters.join(" ");
-        std::fs::write(&nix_conf, format!("substituters = {substituters_as_str}\ntrusted-substituters = {substituters_as_str}")).unwrap();
+        std::fs::write(nix_conf, format!("substituters = {substituters_as_str}\ntrusted-substituters = {substituters_as_str}")).unwrap();
         cmd.env("NIX_CONF_DIR", t.path().display().to_string());
     }
     cmd.env(
@@ -75,7 +75,7 @@ fn gdb(t: &TempDir, exe: &Path, port: u16, commands: &str) -> String {
     cmd.env("NIX_DEBUG_INFO_DIRS", "");
     cmd.env("DEBUGINFOD_URLS", format!("http://127.0.0.1:{port}"));
     cmd.env("DEBUGINFOD_VERBOSE", "1");
-    let tmpfile = file_in(&t, "gdb");
+    let tmpfile = file_in(t, "gdb");
     std::fs::write(&tmpfile, commands).unwrap();
     cmd.arg(exe);
     cmd.arg("--batch");
@@ -202,13 +202,13 @@ fn remove_drv_and_outputs(attr: &str) {
     let out = dbg!(cmd).output().unwrap();
     let out = String::from_utf8_lossy(&out.stdout);
     for line in out.lines() {
-        if line.len() == 0 {
+        if line.is_empty() {
             continue;
         }
         let path = Path::new(line);
         assert!(path.is_absolute());
         // now remove the output
-        delete_path(&path);
+        delete_path(path);
     }
 
     delete_path(&drv_path);
@@ -253,10 +253,10 @@ fn realise_storepath(storepath: impl AsRef<Path>) {
 
 fn remove_debug_output(attr: &str) {
     let path = nix_eval_out_path(attr, "debug");
-    delete_path(&path);
+    delete_path(path);
 }
 
-fn remove_debuginfo_for_builidid(buildid: &str) {
+fn remove_debuginfo_for_buildid(buildid: &str) {
     let segment = format!(
         "lib/debug/.build-id/{}/{}.debug",
         &buildid[..2],
@@ -367,7 +367,7 @@ fn test_invalid_deriver() {
 
 #[test]
 fn test_hydra_api_file() {
-    remove_debuginfo_for_builidid("10deef1d1c1e79a27c25e9636d652ca3b99dc3f5");
+    remove_debuginfo_for_buildid("10deef1d1c1e79a27c25e9636d652ca3b99dc3f5");
     let t = tempfile::tempdir().unwrap();
     let store = file_in(&t, "store");
 
@@ -402,7 +402,7 @@ fn test_hydra_api_file() {
 
 #[test]
 fn test_hydra_api_https() {
-    remove_debuginfo_for_builidid("78218dee9fd3709104f6521a2c5507fb0a5732b2");
+    remove_debuginfo_for_buildid("78218dee9fd3709104f6521a2c5507fb0a5732b2");
     let t = tempfile::tempdir().unwrap();
     let store = file_in(&t, "store");
 

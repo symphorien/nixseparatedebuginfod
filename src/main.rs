@@ -45,20 +45,17 @@ pub struct Options {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<ExitCode> {
-    match (
+    if let (None, Some(dir)) = (
         std::env::var_os("XDG_CACHE_HOME"),
         std::env::var_os("CACHE_DIRECTORY"),
     ) {
-        (None, Some(dir)) => {
-            // this env var is set by systemd
-            std::env::set_var("XDG_CACHE_HOME", dir);
-        }
-        _ => (),
+        // this env var is set by systemd
+        std::env::set_var("XDG_CACHE_HOME", dir);
     }
     if std::env::var_os("RUST_LOG").is_none() {
         std::env::set_var(
             "RUST_LOG",
-            "nixseparatedebuginfo=info,tower_http=debug,sqlx=warn,warn",
+            "nixseparatedebuginfod=info,tower_http=debug,sqlx=warn,warn",
         )
     }
     let args = Options::parse();

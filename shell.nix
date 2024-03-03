@@ -9,6 +9,7 @@ mkShell {
     cargo
     rustc
     rustfmt
+    clippy
     rust-analyzer
     sqlite
     openssl

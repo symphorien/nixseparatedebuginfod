@@ -46,8 +46,8 @@ async fn magic(path: &Path) -> anyhow::Result<Vec<u8>> {
     Ok(res)
 }
 
-const NAR_MAGIC: &'static [u8] = b"\x0d\x00\x00\x00\x00\x00\x00\x00nix-archive-1";
-const ELF_MAGIC: &'static [u8] = b"\x7fELF";
+const NAR_MAGIC: &[u8] = b"\x0d\x00\x00\x00\x00\x00\x00\x00nix-archive-1";
+const ELF_MAGIC: &[u8] = b"\x7fELF";
 
 /// API to fetch debuginfo indices from substituters
 #[async_trait]
@@ -328,10 +328,11 @@ async fn file_substituter_from_url() {
         FileSubstituter::from_url("https://cache.nixos.rg").await,
         Ok(None)
     ));
-    assert!(matches!(
-        FileSubstituter::from_url(&format!("file://{}/doesnotexist", d.path().display())).await,
-        Err(_)
-    ));
+    assert!(
+        FileSubstituter::from_url(&format!("file://{}/doesnotexist", d.path().display()))
+            .await
+            .is_err()
+    );
     let ok = FileSubstituter::from_url(&format!(
         "file://{}/./?with_query_string=true",
         d.path().display()
@@ -378,7 +379,7 @@ impl HttpSubstituter {
         };
 
         http_url.set_query(None);
-        if !http_url.path().ends_with("/") {
+        if !http_url.path().ends_with('/') {
             let mut path = http_url.path().to_owned();
             path.push('/');
             http_url.set_path(&path);

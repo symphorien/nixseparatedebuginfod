@@ -22,7 +22,7 @@ use tokio::sync::mpsc::Sender;
 /// Set by [detect_nix].
 static NIX_STORE_QUERY_VALID_DERIVERS_SUPPORTED: AtomicBool = AtomicBool::new(false);
 
-const NIX_STORE: &'static str = "/nix/store";
+const NIX_STORE: &str = "/nix/store";
 
 /// attempts have this store path exist in the store
 ///
@@ -342,7 +342,7 @@ fn get_valid_derivers(storepath: &Path) -> anyhow::Result<Vec<PathBuf>> {
     }
     let mut result = Vec::new();
     for line in out.stdout.split(|&c| c == b'\n') {
-        if line.len() != 0 {
+        if !line.is_empty() {
             let path = PathBuf::from(OsString::from_vec(line.to_owned()));
             if !path.is_absolute() {
                 // nix returns `unknown-deriver` when it does not know
@@ -358,7 +358,7 @@ fn get_valid_derivers(storepath: &Path) -> anyhow::Result<Vec<PathBuf>> {
     Ok(result)
 }
 
-/// Attempts to obtain any deriver for this store path, preferrably existing.
+/// Attempts to obtain any deriver for this store path, preferably existing.
 ///
 /// Corresponds to `nix-store --query --deriver` or `nix-store --query --valid-derivers.
 ///
@@ -392,7 +392,7 @@ pub fn detect_nix() -> anyhow::Result<()> {
     let mut test_path = None;
     for entry in Path::new("/nix/store")
         .read_dir()
-        .context("listing directoy content of /nix/store")?
+        .context("listing directory content of /nix/store")?
     {
         let entry = entry.context("reading directory entry in /nix/store")?;
         if entry.file_name().as_bytes().starts_with(b".") {
@@ -436,7 +436,7 @@ fn get_debug_output(drvpath: &Path) -> anyhow::Result<Option<PathBuf>> {
             return Ok(Some(PathBuf::from(OsString::from_vec(output.to_owned()))));
         }
     }
-    return Ok(None);
+    Ok(None)
 }
 
 /// Obtains the source store path corresponding to this derivation
@@ -569,7 +569,7 @@ fn test_demangle_incomplete() {
 }
 
 #[test]
-fn test_demangle_non_storepaht() {
+fn test_demangle_non_storepath() {
     assert_eq!(
         demangle(PathBuf::from("/build/src/FOO.C")),
         PathBuf::from("/build/src/FOO.C")
@@ -608,7 +608,7 @@ pub fn get_file_for_source(
             }
         }
     } else if source_type.is_file() {
-        let mut archive = std::fs::File::open(&source)
+        let mut archive = std::fs::File::open(source)
             .with_context(|| format!("opening source archive {}", source.display()))?;
         let member_list = compress_tools::list_archive_files(&mut archive)
             .with_context(|| format!("listing files in source archive {}", source.display()))?;
@@ -782,7 +782,7 @@ pub fn get_store_path(path: &Path) -> Option<&Path> {
             _ => (),
         }
     }
-    return None;
+    None
 }
 
 #[test]
