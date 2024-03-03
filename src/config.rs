@@ -29,30 +29,33 @@ pub async fn get_nix_config() -> anyhow::Result<NixConfig> {
 }
 
 fn parse_nix_config(text: &str) -> anyhow::Result<NixConfig> {
+    let mut extras = NixConfig::new();
     let mut result = NixConfig::new();
-    for line in text.split("\n") {
-        if let Some(cut) = line.find("=") {
+    for line in text.split('\n') {
+        if let Some(cut) = line.find('=') {
             let key = &line[..cut].trim();
             let value = &line[(cut + 1)..].trim();
-            if key.starts_with("extra-") {
-                let key = &key[6..];
-                let entry = result.entry(key.to_string());
-                entry
-                    .and_modify(|before| {
-                        before.push_str(" ");
-                        before.push_str(value);
-                    })
-                    .or_insert_with(|| value.to_string());
+            let map = if key.starts_with("extra-") {
+                &mut extras
             } else {
-                let entry = result.entry(key.to_string());
-                match entry {
-                    Entry::Occupied(_) => {
-                        anyhow::bail!("several values for nix config entry {}", key)
-                    }
-                    Entry::Vacant(e) => e.insert(value.to_string()),
-                };
-            }
+                &mut result
+            };
+            match map.entry(key.to_string()) {
+                Entry::Occupied(_) => {
+                    anyhow::bail!("several values for nix config entry {}", key)
+                }
+                Entry::Vacant(e) => e.insert(value.to_string()),
+            };
         }
+    }
+    for (key, value) in extras {
+        result
+            .entry(key[6..].to_string())
+            .and_modify(|before| {
+                before.push(' ');
+                before.push_str(&value);
+            })
+            .or_insert_with(|| value);
     }
     Ok(result)
 }
@@ -80,6 +83,15 @@ fn nix_config_extra() {
     let config = r#"
         experimental-features = flakes
         extra-experimental-features = nix-command"#;
+    let expected = maplit::hashmap! { "experimental-features".to_string() => "flakes nix-command".to_string() };
+    assert_eq!(parse_nix_config(config).unwrap(), expected);
+}
+
+#[test]
+fn nix_config_extra_before() {
+    let config = r#"
+        extra-experimental-features = nix-command
+        experimental-features = flakes"#;
     let expected = maplit::hashmap! { "experimental-features".to_string() => "flakes nix-command".to_string() };
     assert_eq!(parse_nix_config(config).unwrap(), expected);
 }
