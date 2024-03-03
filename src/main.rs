@@ -59,7 +59,7 @@ async fn main() -> anyhow::Result<ExitCode> {
         )
     }
     let args = Options::parse();
-    tracing_subscriber::fmt::init();
+    tracing_subscriber::fmt().without_time().init();
 
     // check that nix-store is present
     match store::detect_nix() {
