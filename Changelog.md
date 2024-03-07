@@ -4,6 +4,13 @@ SPDX-FileCopyrightText: 2023 Guillaume Girol <symphorien+git@xlumurb.eu>
 SPDX-License-Identifier: CC0-1.0
 -->
 
+# `v0.3.4`
+
+* fix crash on malformed ELF
+* fix parsing `extra-` options in nix configuration
+* module: fix using with nix 2.3
+* don't emit timestamps in logs (journald does it already)
+
 # `v0.3.3`
 
 * handle sources inlined from another derivation (for example C++ template instantiation). Related: nixpkgs PR 279455
