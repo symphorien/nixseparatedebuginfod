@@ -794,7 +794,7 @@ rec {
           }
           {
             name = "object";
-            packageId = "object";
+            packageId = "object 0.32.2";
             usesDefaultFeatures = false;
             target = { target, features }: (!((target."windows" or false) && ("msvc" == target."env" or null) && (!("uwp" == target."vendor" or null))));
             features = [ "read_core" "elf" "macho" "pe" "unaligned" "archive" ];
@@ -3762,7 +3762,7 @@ rec {
           }
           {
             name = "object";
-            packageId = "object";
+            packageId = "object 0.33.0";
           }
           {
             name = "once_cell";
@@ -4094,11 +4094,43 @@ rec {
         ];
 
       };
-      "object" = rec {
+      "object 0.32.2" = rec {
         crateName = "object";
         version = "0.32.2";
         edition = "2018";
         sha256 = "0hc4cjwyngiy6k51hlzrlsxgv5z25vv7c2cp0ky1lckfic0259m6";
+        dependencies = [
+          {
+            name = "memchr";
+            packageId = "memchr";
+            usesDefaultFeatures = false;
+          }
+        ];
+        features = {
+          "all" = [ "read" "write" "std" "compression" "wasm" ];
+          "alloc" = [ "dep:alloc" ];
+          "compiler_builtins" = [ "dep:compiler_builtins" ];
+          "compression" = [ "dep:flate2" "dep:ruzstd" "std" ];
+          "core" = [ "dep:core" ];
+          "default" = [ "read" "compression" ];
+          "doc" = [ "read_core" "write_std" "std" "compression" "archive" "coff" "elf" "macho" "pe" "wasm" "xcoff" ];
+          "pe" = [ "coff" ];
+          "read" = [ "read_core" "archive" "coff" "elf" "macho" "pe" "xcoff" "unaligned" ];
+          "rustc-dep-of-std" = [ "core" "compiler_builtins" "alloc" "memchr/rustc-dep-of-std" ];
+          "std" = [ "memchr/std" ];
+          "unstable-all" = [ "all" "unstable" ];
+          "wasm" = [ "dep:wasmparser" ];
+          "write" = [ "write_std" "coff" "elf" "macho" "pe" "xcoff" ];
+          "write_core" = [ "dep:crc32fast" "dep:indexmap" "dep:hashbrown" ];
+          "write_std" = [ "write_core" "std" "indexmap?/std" "crc32fast?/std" ];
+        };
+        resolvedDefaultFeatures = [ "archive" "coff" "elf" "macho" "pe" "read_core" "unaligned" ];
+      };
+      "object 0.33.0" = rec {
+        crateName = "object";
+        version = "0.33.0";
+        edition = "2018";
+        sha256 = "0g8xf0s1jirbipnl79lqr3cbz88zwvy2ndp10vhbqaclvw66rpfq";
         dependencies = [
           {
             name = "flate2";
@@ -4117,13 +4149,15 @@ rec {
           }
         ];
         features = {
-          "all" = [ "read" "write" "std" "compression" "wasm" ];
+          "all" = [ "read" "write" "build" "std" "compression" "wasm" ];
           "alloc" = [ "dep:alloc" ];
+          "build" = [ "build_core" "write_std" "elf" ];
+          "build_core" = [ "read_core" "write_core" ];
           "compiler_builtins" = [ "dep:compiler_builtins" ];
           "compression" = [ "dep:flate2" "dep:ruzstd" "std" ];
           "core" = [ "dep:core" ];
           "default" = [ "read" "compression" ];
-          "doc" = [ "read_core" "write_std" "std" "compression" "archive" "coff" "elf" "macho" "pe" "wasm" "xcoff" ];
+          "doc" = [ "read_core" "write_std" "build_core" "std" "compression" "archive" "coff" "elf" "macho" "pe" "wasm" "xcoff" ];
           "pe" = [ "coff" ];
           "read" = [ "read_core" "archive" "coff" "elf" "macho" "pe" "xcoff" "unaligned" ];
           "rustc-dep-of-std" = [ "core" "compiler_builtins" "alloc" "memchr/rustc-dep-of-std" ];
@@ -5361,10 +5395,10 @@ rec {
       };
       "ruzstd" = rec {
         crateName = "ruzstd";
-        version = "0.5.0";
+        version = "0.6.0";
         edition = "2018";
         crateBin = [];
-        sha256 = "0ga8jciw7ka3mxrzl39skmsbdslajghzglcil10g0z4rh65fpi2q";
+        sha256 = "0yygqpar2x910lnii4k5p43aj4943hlnxpczmqhsfddmxrqa8x2i";
         authors = [
           "Moritz Borcherding <moritz.borcherding@web.de>"
         ];
@@ -5383,14 +5417,16 @@ rec {
           {
             name = "twox-hash";
             packageId = "twox-hash";
+            optional = true;
             usesDefaultFeatures = false;
           }
         ];
         features = {
-          "default" = [ "std" ];
+          "default" = [ "hash" "std" ];
+          "hash" = [ "dep:twox-hash" ];
           "std" = [ "derive_more/error" ];
         };
-        resolvedDefaultFeatures = [ "default" "std" ];
+        resolvedDefaultFeatures = [ "default" "hash" "std" ];
       };
       "ryu" = rec {
         crateName = "ryu";
