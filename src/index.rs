@@ -288,7 +288,7 @@ pub async fn index_single_store_path_to_cache(
 ) -> anyhow::Result<()> {
     let (tx, mut rx) = tokio::sync::mpsc::channel(BATCH_SIZE);
     let path = path.to_path_buf();
-    let handle = tokio::task::spawn_blocking(move || index_store_path(&path, tx, online));
+    let handle = tokio::task::spawn_blocking(move || index_store_path(&path, tx, !online));
     let mut batch = Vec::new();
     while let Some(entry) = rx.recv().await {
         batch.push(entry);
