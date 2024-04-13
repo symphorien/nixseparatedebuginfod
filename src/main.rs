@@ -18,6 +18,7 @@ use std::{net::SocketAddr, process::ExitCode};
 use clap::Parser;
 
 use tikv_jemallocator::Jemalloc;
+use tracing_subscriber::{layer::SubscriberExt as _, util::SubscriberInitExt as _};
 
 // makes RSS decrease after initial indexation, and decreases peak RSS during indexation
 #[global_allocator]
@@ -59,7 +60,11 @@ async fn main() -> anyhow::Result<ExitCode> {
         )
     }
     let args = Options::parse();
-    tracing_subscriber::fmt().without_time().init();
+    let fmt_layer = tracing_subscriber::fmt::layer().without_time();
+    tracing_subscriber::registry()
+        .with(fmt_layer)
+        .with(tracing_subscriber::EnvFilter::from_default_env())
+        .init();
 
     // check that nix-store is present
     match store::detect_nix() {
