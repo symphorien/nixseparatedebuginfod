@@ -2,12 +2,20 @@
 #
 # SPDX-License-Identifier: CC0-1.0
 
-map (channel: let
-  pkgs = import (builtins.fetchTarball ("channel:"+channel)) {};
-  nixseparatedebuginfod = pkgs.callPackage ./nixseparatedebuginfod.nix {};
+let
+  compiling_on_stable_and_unstable = map
+    (channel:
+      let
+        pkgs = import (builtins.fetchTarball ("channel:" + channel)) { };
+        nixseparatedebuginfod = pkgs.callPackage ./nixseparatedebuginfod.nix { };
+      in
+      nixseparatedebuginfod.overrideAttrs ({ name, ... }: {
+        name = name + "-" + channel;
+      })
+    ) [ "nixos-unstable" "nixos-23.11" ];
+  nixos_tests = builtins.attrValues (import ./tests/nixos-tests.nix { });
 in
-  nixseparatedebuginfod.overrideAttrs ({name, ...}: {
-    name = name + "-" + channel;
-  })
-  ) [ "nixos-unstable" "nixos-23.11" ]
+compiling_on_stable_and_unstable ++ nixos_tests
+
+
 
