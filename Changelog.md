@@ -4,6 +4,11 @@ SPDX-FileCopyrightText: 2023 Guillaume Girol <symphorien+git@xlumurb.eu>
 SPDX-License-Identifier: CC0-1.0
 -->
 
+# master
+
+* fix ignoring `RUST_LOG`
+* fix fetching drv files from substituters
+
 # `v0.3.4`
 
 * fix crash on malformed ELF
