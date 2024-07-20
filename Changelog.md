@@ -4,10 +4,11 @@ SPDX-FileCopyrightText: 2023 Guillaume Girol <symphorien+git@xlumurb.eu>
 SPDX-License-Identifier: CC0-1.0
 -->
 
-# master
+# `v0.4.0`
 
 * fix ignoring `RUST_LOG`
 * fix fetching drv files from substituters
+* does not build anymore with the version of rustc shipped by NixOS 23.11
 
 # `v0.3.4`
 
