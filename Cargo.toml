@@ -15,10 +15,10 @@ debug = true
 [dependencies]
 anyhow = "1.0.68"
 base16 = "0.2.1"
-compress-tools = { version = "0.14.0", features = [ "tokio_support" ] }
+compress-tools = { version = "0.15.0", features = [ "tokio_support" ] }
 directories = "5"
 futures-util = "0.3"
-object = "0.33"
+object = "0.36"
 once_cell = "1.17.0"
 sqlx = { version = "0.7", features = [ "runtime-tokio", "sqlite" ] }
 tokio = { version = "1.24.1", features = ["process", "fs", "sync"] }
@@ -27,8 +27,7 @@ walkdir = "2.3.2"
 sha2 = "0.10.6"
 axum = "0.7"
 axum-macros = "0.4"
-# < 4.5 to keep building with the rustc on nixos 23.11
-clap = { version = "4.1.1,<4.5", features = [ "derive" ] }
+clap = { version = "4", features = [ "derive" ] }
 tower-http = { version = "0.5", features = [ "trace" ] }
 tracing = "0.1.37"
 tracing-subscriber = { version = "0.3.16", features = [ "env-filter" ] }
@@ -38,12 +37,12 @@ serde_json = "1"
 tempfile = "3"
 async-trait = "0.1"
 async-recursion = "1"
-reqwest = { version = "0.11.18", features = [ "stream" ] }
-tikv-jemallocator = "0.5.4"
+reqwest = { version = "0.12.0", features = [ "stream" ] }
+tikv-jemallocator = "0.6.0"
 
 [dev-dependencies]
 assert_cmd = "2"
 rand = "0.8"
 prctl = "1"
 maplit = "1"
-reqwest = { version = "0.11.18", features = [ "blocking" ] }
+reqwest = { version = "0.12.0", features = [ "blocking" ] }
