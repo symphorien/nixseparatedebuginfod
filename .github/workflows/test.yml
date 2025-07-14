@@ -15,4 +15,4 @@ jobs:
     - name: Run the Magic Nix Cache
       uses: DeterminateSystems/magic-nix-cache-action@v2
     - run: nix-build test.nix
-    - run: nix-shell -I nixpkgs=channel:nixos-24.05 --run "cargo clippy && cargo nextest run --profile ci"
+    - run: nix-shell -I nixpkgs=channel:nixos-25.05 --run "cargo clippy && cargo nextest run --profile ci"
