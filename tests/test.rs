@@ -315,7 +315,7 @@ fn test_normal() {
         &t,
         &exe,
         port,
-        "start\nl\nl nlohmann::detail::output_stream_adapter<char>::write_character(char)\n",
+        "start\nl\nn\nl\nl nlohmann::detail::output_stream_adapter<char>::write_character(char)\n",
     );
     // gdb fetched the source of main()
     assert!(dbg!(&out).contains("389\tint main(int argc, char * * argv)"));
