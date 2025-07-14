@@ -540,7 +540,7 @@ pub fn demangle(storepath: PathBuf) -> PathBuf {
     }
     let mut as_bytes = storepath.into_os_string().into_vec();
     let len = as_bytes.len();
-    let store_len = NIX_STORE.as_bytes().len();
+    let store_len = NIX_STORE.len();
     as_bytes[len.min(store_len + 1)..len.min(store_len + 1 + 32)].make_ascii_lowercase();
     OsString::from_vec(as_bytes).into()
 }
