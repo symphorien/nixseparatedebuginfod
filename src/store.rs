@@ -24,6 +24,20 @@ static NIX_STORE_QUERY_VALID_DERIVERS_SUPPORTED: AtomicBool = AtomicBool::new(fa
 
 const NIX_STORE: &str = "/nix/store";
 
+/// Opens the specified file read only, but only if it's in /nix/store
+pub fn open_store_path(path: impl AsRef<Path>) -> anyhow::Result<std::fs::File> {
+    let Ok(relative) = path.as_ref().strip_prefix(NIX_STORE) else {
+        anyhow::bail!("{:?} is not a store path", path.as_ref());
+    };
+    let root = pathrs::Root::open(NIX_STORE).context("opening /nix/store")?;
+    let path = path.as_ref();
+    let handle = root
+        .resolve(Path::new("/").join(relative))
+        .with_context(|| format!("failed to resolve store path {path:?}"))?;
+    handle
+        .reopen(pathrs::flags::OpenFlags::O_RDONLY)
+        .with_context(|| format!("opening store path {path:?}"))
+}
 /// attempts have this store path exist in the store
 ///
 /// if the path already exists, do nothing

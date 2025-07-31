@@ -3139,6 +3139,27 @@ rec {
         };
         resolvedDefaultFeatures = [ "default" ];
       };
+      "itertools" = rec {
+        crateName = "itertools";
+        version = "0.13.0";
+        edition = "2018";
+        sha256 = "11hiy3qzl643zcigknclh446qb9zlg4dpdzfkjaa9q9fqpgyfgj1";
+        authors = [
+          "bluss"
+        ];
+        dependencies = [
+          {
+            name = "either";
+            packageId = "either";
+            usesDefaultFeatures = false;
+          }
+        ];
+        features = {
+          "default" = [ "use_std" ];
+          "use_std" = [ "use_alloc" "either/use_std" ];
+        };
+        resolvedDefaultFeatures = [ "default" "use_alloc" "use_std" ];
+      };
       "itoa" = rec {
         crateName = "itoa";
         version = "1.0.11";
@@ -3727,6 +3748,10 @@ rec {
           {
             name = "once_cell";
             packageId = "once_cell";
+          }
+          {
+            name = "pathrs";
+            packageId = "pathrs";
           }
           {
             name = "reqwest";
@@ -4333,6 +4358,56 @@ rec {
           "David Tolnay <dtolnay@gmail.com>"
         ];
 
+      };
+      "pathrs" = rec {
+        crateName = "pathrs";
+        version = "0.1.3";
+        edition = "2021";
+        sha256 = "0g4140b580h702mabhnpjc0ymaib181n3rfqzvcfs73raj0l6jcj";type = [ "rlib" ];
+        authors = [
+          "Aleksa Sarai <cyphar@cyphar.com>"
+        ];
+        dependencies = [
+          {
+            name = "bitflags";
+            packageId = "bitflags 2.6.0";
+          }
+          {
+            name = "itertools";
+            packageId = "itertools";
+          }
+          {
+            name = "lazy_static";
+            packageId = "lazy_static";
+          }
+          {
+            name = "libc";
+            packageId = "libc";
+          }
+          {
+            name = "memchr";
+            packageId = "memchr";
+          }
+          {
+            name = "rustix";
+            packageId = "rustix";
+            features = [ "fs" ];
+          }
+          {
+            name = "thiserror";
+            packageId = "thiserror";
+          }
+        ];
+        devDependencies = [
+          {
+            name = "rustix";
+            packageId = "rustix";
+            features = [ "process" ];
+          }
+        ];
+        features = {
+          "capi" = [ "dep:rand" "dep:open-enum" ];
+        };
       };
       "pem-rfc7468" = rec {
         crateName = "pem-rfc7468";

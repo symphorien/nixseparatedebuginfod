@@ -22,6 +22,7 @@ fn nixseparatedebuginfod(t: &TempDir) -> Command {
 fn populate_cache(t: &TempDir) {
     let mut cmd = nixseparatedebuginfod(t);
     cmd.arg("-i");
+    cmd.env("RUST_LOG", "debug");
     dbg!(cmd).assert().success();
 }
 

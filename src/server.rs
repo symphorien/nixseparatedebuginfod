@@ -25,7 +25,9 @@ use tokio_util::io::ReaderStream;
 use crate::db::Cache;
 use crate::index::{index_single_store_path_to_cache, StoreWatcher};
 use crate::log::ResultExt;
-use crate::store::{demangle, get_file_for_source, get_store_path, realise, SourceLocation};
+use crate::store::{
+    demangle, get_file_for_source, get_store_path, open_store_path, realise, SourceLocation,
+};
 use crate::substituter::{FileSubstituter, HttpSubstituter, Substituter};
 use crate::Options;
 
@@ -54,11 +56,12 @@ async fn unwrap_file<T: AsRef<std::path::Path>>(
 ) -> impl IntoResponse {
     let response = match path {
         Ok(Some(p)) => {
-            match tokio::fs::File::open(p.as_ref()).await {
+            let fd = open_store_path(&p);
+            match fd.map(tokio::fs::File::from) {
                 Err(e) => Err((StatusCode::NOT_FOUND, format!("{:#}", e))),
                 Ok(file) => {
                     let mut headers = HeaderMap::new();
-                    if let Ok(metadata) = p.as_ref().metadata() {
+                    if let Ok(metadata) = file.metadata().await {
                         if let Ok(value) = metadata.size().to_string().parse() {
                             headers.insert(CONTENT_LENGTH, value);
                         }
