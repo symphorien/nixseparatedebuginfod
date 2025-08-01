@@ -38,6 +38,7 @@ in
         while debuginfod-find debuginfo ${builtins.unsafeDiscardStringContext "${sl}"}/bin/sl |& grep 'File too large'; do
           sleep 1;
         done
+        echo "debuginfod-find succeeded"
       '')
     ];
     system.extraDependencies = [
@@ -48,8 +49,6 @@ in
     start_all()
     cache.wait_for_unit("nix-serve.service")
     cache.wait_for_open_port(5000)
-    machine.wait_for_unit("nixseparatedebuginfod.service")
-    machine.wait_for_open_port(1949)
 
     with subtest("show the config to debug the test"):
       machine.succeed("nix --extra-experimental-features nix-command show-config |& logger")
@@ -64,10 +63,17 @@ in
       cache.succeed("nix-store --query --deriver ${sl}/bin/sl |& logger --stderr |& grep /nix/store")
 
     with subtest("fetch sl, but not its drv file"):
+      # there is probably a bug in indexation when nix-store --realise happens concurrently to indexation.
+      # this test is for fetching .drv files, so I'm avoiding this bug for now. sorry.
+      machine.succeed("systemctl stop nixseparatedebuginfod.service")
       machine.succeed("nix-store --realise ${sl}")
 
       machine.succeed("nix-store --query --deriver ${sl}/bin/sl |& logger --stderr |& grep /nix/store")
       machine.succeed("[ ! -d $(nix-store --query --deriver ${sl}/bin/sl) ]")
+
+    machine.succeed("systemctl start nixseparatedebuginfod.service")
+    machine.wait_for_unit("nixseparatedebuginfod.service")
+    machine.wait_for_open_port(1949)
 
     machine.succeed("timeout 600 wait_for_indexation")
 
