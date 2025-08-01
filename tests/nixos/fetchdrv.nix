@@ -17,7 +17,7 @@ in
       pkgs.stdenv
       (lib.getDev pkgs.ncurses)
       (lib.getLib pkgs.ncurses)
-      pkgs.sl.src
+      sl.src
       pkgs.bash
       pkgs.path
     ];

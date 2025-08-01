@@ -257,6 +257,11 @@ pub fn index_store_path(storepath: &Path, sendto: Sender<Entry>, offline: bool) 
                             cmd.arg("-apug");
                             cmd.arg(storepath);
                             let _ = cmd.status();
+                            let mut cmd = std::process::Command::new("nix-store");
+                            cmd.arg("--verify-path");
+                            cmd.arg(storepath);
+                            cmd.arg("-vvvv");
+                            assert!(cmd.status().expect("bad store").success());
                             None
                         } else {
                             Some(theoretical)
