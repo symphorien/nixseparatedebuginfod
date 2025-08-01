@@ -71,6 +71,7 @@ in
 
       machine.succeed("nix-store --query --deriver ${sl}/bin/sl |& logger --stderr |& grep /nix/store")
       machine.succeed("[ ! -d $(nix-store --query --deriver ${sl}/bin/sl) ]")
+      machine.succeed("nix-store --verify --check-contents")
 
     machine.succeed("systemctl start nixseparatedebuginfod.service")
     machine.wait_for_unit("nixseparatedebuginfod.service")
