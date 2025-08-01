@@ -17,5 +17,6 @@ jobs:
       with:
         primary-key: nix-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/*.nix', '**/flake.lock') }}
         restore-prefixes-first-match: nix-${{ runner.os }}-${{ runner.arch }}
+    - run: nix config show
     - run: nix-build test.nix
     - run: nix-shell -I nixpkgs=channel:nixos-25.05 --run "cargo clippy && cargo nextest run --profile ci"
