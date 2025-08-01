@@ -30,6 +30,8 @@ fn wait_for_port(port: u16) {
     }
 }
 
+const OFFICIAL_CACHE: &'static str = "https://cache.nixos.org";
+
 /// Spawns a nixseparatedebuginfod on a random port
 ///
 /// returns the port and child handle. Don't forget to kill it.
@@ -279,7 +281,7 @@ fn test_normal() {
 
     remove_debug_output("gnumake");
 
-    let (port, mut server) = spawn_server(&t, Some(vec![]));
+    let (port, mut server) = spawn_server(&t, Some(vec![OFFICIAL_CACHE]));
 
     let mut exe = output;
     exe.push("bin");
@@ -291,7 +293,7 @@ fn test_normal() {
 
     populate_cache(&t);
 
-    let (port, mut server) = spawn_server(&t, Some(vec![]));
+    let (port, mut server) = spawn_server(&t, Some(vec![OFFICIAL_CACHE]));
 
     let out = gdb(&t, &exe, port, "start\nl\n");
     assert!(dbg!(out).contains("1051\tmain (int argc, char **argv)"));
@@ -350,7 +352,7 @@ fn test_invalid_deriver() {
     populate_cache(&t);
 
     // start a server that can't fetch from hydra
-    let (port, mut server) = spawn_server(&t, Some(vec![]));
+    let (port, mut server) = spawn_server(&t, Some(vec![OFFICIAL_CACHE]));
 
     // check that the server can use the deriver of mailutils_drvhash2 instead of
     // the deriver returned by hydra (mailutils_drvhash1)
