@@ -253,6 +253,10 @@ pub fn index_store_path(storepath: &Path, sendto: Sender<Entry>, offline: bool) 
                                 storepath.display(),
                                 theoretical.display()
                             );
+                            let mut cmd = std::process::Command::new("tree");
+                            cmd.arg("-apug");
+                            cmd.arg(storepath);
+                            let _ = cmd.status();
                             None
                         } else {
                             Some(theoretical)

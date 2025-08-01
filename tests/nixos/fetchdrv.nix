@@ -25,6 +25,7 @@ in
   /* the machine where we need the debuginfo */
   nodes.machine = {
     services.nixseparatedebuginfod.enable = true;
+    systemd.services.nixseparatedebuginfod.path = [ pkgs.tree ];
     nixpkgs.overlays = [ overlay ];
     nix.settings = {
       substituters = lib.mkForce [ "http://cache:5000" ];
@@ -38,7 +39,7 @@ in
         while debuginfod-find debuginfo ${builtins.unsafeDiscardStringContext "${sl}"}/bin/sl |& grep 'File too large'; do
           sleep 1;
         done
-        echo "debuginfod-find succeeded"
+        echo "debuginfod-find stopped saying File too large"
       '')
     ];
     system.extraDependencies = [
