@@ -41,7 +41,8 @@ fn which(cmd: &str) -> String {
             .get_output()
             .stdout,
     )
-    .into_owned()
+    .trim_end()
+    .to_owned()
 }
 
 /// Spawns a nixseparatedebuginfod on a random port
