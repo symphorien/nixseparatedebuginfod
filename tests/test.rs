@@ -81,7 +81,11 @@ fn spawn_server(t: &TempDir, substituters: Option<Vec<&str>>) -> (u16, std::proc
         .unwrap();
         cmd.env(
             "PATH",
-            std::env::var("PATH").unwrap() + ":" + fake_bin.to_string_lossy().as_ref(),
+            format!(
+                "{}:{}",
+                fake_bin.to_string_lossy().as_ref(),
+                std::env::var("PATH").unwrap()
+            ),
         );
     }
     cmd.env(
