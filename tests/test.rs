@@ -336,7 +336,7 @@ fn test_normal() {
     assert!(dbg!(out).contains("1051\tmain (int argc, char **argv)"));
 
     // nix has source in flat files
-    let output: PathBuf = file_in(&t, "nix");
+    let output: PathBuf = file_in(&t, "nixstorepath");
     nix_build("nix", &output, None::<PathBuf>);
     // we will test fetching the source of a template instantiation from a header-only library
     // disabled until nix bin output drops its reference to nlohmann_json
