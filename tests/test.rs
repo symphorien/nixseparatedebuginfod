@@ -62,7 +62,7 @@ fn spawn_server(t: &TempDir, substituters: Option<Vec<&str>>) -> (u16, std::proc
         let sh = dbg!(which("sh"));
         let nix_conf = file_in(t, "nix.conf");
         let substituters_as_str = &substituters.join(" ");
-        std::fs::write(nix_conf, format!("substituters = {substituters_as_str}\ntrusted-substituters = {substituters_as_str}")).unwrap();
+        std::fs::write(nix_conf, format!("substituters = {substituters_as_str}\ntrusted-substituters = {substituters_as_str}\n")).unwrap();
         let fake_bin = t.path().join(format!("fakebin{port}"));
         std::fs::create_dir_all(&fake_bin).unwrap();
         let fake_nix = fake_bin.join("nix");
@@ -76,7 +76,7 @@ fn spawn_server(t: &TempDir, substituters: Option<Vec<&str>>) -> (u16, std::proc
         let nix_conf_dir = t.path().display().to_string();
         write!(
             &mut fd,
-            r#"#!{sh}\nexport NIX_CONF_DIR='{nix_conf_dir}'\nexec {current_nix} "$@""#
+            "#!{sh}\nexport NIX_CONF_DIR='{nix_conf_dir}'\nexec {current_nix} \"$@\"\n"
         )
         .unwrap();
         cmd.env(
