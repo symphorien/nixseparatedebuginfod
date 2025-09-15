@@ -15,7 +15,8 @@ rec {
     nix # has source in flat files
     nlohmann_json
     python3
-    python310;
+    python310
+    rpm;
   sl = pkgs.sl.overrideAttrs (_:{ separateDebugInfo = true; });
   mailutils_drvhash1 = pkgs.mailutils;
   mailutils_drvhash2 = mailutils_drvhash1.overrideAttrs (old: {

@@ -2,6 +2,7 @@
 //
 // SPDX-License-Identifier: GPL-3.0-only
 
+use assert_cmd::assert::Assert;
 use assert_cmd::prelude::*;
 use std::fs::OpenOptions;
 use std::io::{Seek, SeekFrom, Write};
@@ -498,6 +499,49 @@ fn test_cache_invalidation() {
     // with nix-store --realise, so fetch it with the hydra api
     let out = gdb(&t, &exe, port, "start\n");
     assert!(dbg!(out).contains("at sl.c:120"));
+
+    server.kill().unwrap();
+}
+
+fn fetch_source_from_server(port: u16, exe: impl AsRef<Path>, path: impl AsRef<Path>) -> Assert {
+    let t = tempfile::tempdir().unwrap();
+    let mut cmd = Command::new("debuginfod-find");
+    cmd.arg("source")
+        .arg(exe.as_ref())
+        .arg(path.as_ref())
+        .env("XDG_CACHE_HOME", t.path())
+        .env("HOME", t.path())
+        .env("DEBUGINFOD_URLS", format!("http://localhost:{port}"));
+    dbg!(cmd).assert()
+}
+
+#[test]
+fn test_path_traversal() {
+    let t = tempfile::tempdir().unwrap();
+
+    // gnumake has source in tar.gz files
+    let output = file_in(&t, "rpm");
+    nix_build("rpm", &output, None::<PathBuf>);
+    populate_cache(&t);
+
+    let (port, mut server) = spawn_server(&t, Some(vec![]));
+
+    let exe = output.join("bin").join("rpm").canonicalize().unwrap();
+
+    let test_file = file_in(&t, "target");
+    std::fs::write(&test_file, "hi").unwrap();
+
+    // the server should serve any file in the store
+    fetch_source_from_server(port, &exe, &exe).success();
+    // but not files outside of it
+    fetch_source_from_server(
+        port,
+        &exe,
+        exe.parent()
+            .unwrap()
+            .join(format!("../../../../{}", test_file.to_string_lossy())),
+    )
+    .failure();
 
     server.kill().unwrap();
 }

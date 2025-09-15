@@ -18,6 +18,7 @@ mkShell {
     cargo-license
     cargo-outdated
     cargo-nextest
+    elfutils.bin
   ]
   ++ lib.optionals (!gdb.meta.unsupported) [gdb];
   buildInputs = [ libarchive ];
