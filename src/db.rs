@@ -4,10 +4,15 @@
 
 //! Cache for buildid -> debuginfo as a sqlite database
 
+use std::{str::FromStr, time::Duration};
+
 use anyhow::{bail, Context};
 use directories::ProjectDirs;
 use sha2::Digest;
-use sqlx::{sqlite::SqlitePool, Row};
+use sqlx::{
+    sqlite::{SqliteConnectOptions, SqlitePool},
+    Row,
+};
 
 use crate::log::ResultExt;
 
@@ -92,6 +97,11 @@ async fn populate_pool(pool: &SqlitePool) -> anyhow::Result<()> {
 }
 
 impl Cache {
+    async fn connect_pool(url: &str) -> sqlx::Result<SqlitePool> {
+        let opts = SqliteConnectOptions::from_str(url)?.busy_timeout(Duration::from_secs(60));
+        SqlitePool::connect_with(opts).await
+    }
+
     /// Attempts to open the cache from disk. Does not try very hard.
     async fn open_weak() -> anyhow::Result<Cache> {
         let dirs = ProjectDirs::from("eu", "xlumurb", "nixseparatedebuginfod");
@@ -109,7 +119,7 @@ impl Cache {
             None => bail!("cache path {} is not utf8", path.display()),
         };
         let url = format!("file:{}?mode=rwc", path_utf8);
-        let pool = SqlitePool::connect(&url)
+        let pool = Self::connect_pool(&url)
             .await
             .with_context(|| format!("failed to connect to {} with sqlite3", &url))?;
         if !cache_exists {
@@ -126,7 +136,7 @@ impl Cache {
                 std::fs::remove_file(&path).unwrap_or_else(|e| {
                     tracing::warn!("error removing corrupted cache {}: {:#}", path.display(), e)
                 });
-                let pool = SqlitePool::connect(&url)
+                let pool = Self::connect_pool(&url)
                     .await
                     .with_context(|| format!("failed to connect to {} with sqlite3", &url))?;
                 populate_pool(&pool)
@@ -146,7 +156,7 @@ impl Cache {
                     "could not use on disk cache ({:#}), running cache in memory",
                     e
                 );
-                let pool = SqlitePool::connect(":memory:")
+                let pool = Self::connect_pool(":memory:")
                     .await
                     .context("opening in memory sql db")?;
                 populate_pool(&pool)

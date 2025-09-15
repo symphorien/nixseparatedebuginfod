@@ -94,6 +94,7 @@ pub async fn fetch_debuginfo<T: Substituter + ?Sized>(
 /// attempt to fetch debuginfo in this relative path inside the substituter
 ///
 /// returns a store path containing it
+#[allow(clippy::multiple_bound_locations)]
 #[async_recursion]
 async fn fetch_debuginfo_from<T: Substituter + ?Sized>(
     substituter: &T,

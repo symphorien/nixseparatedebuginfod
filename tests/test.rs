@@ -3,7 +3,9 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 use assert_cmd::prelude::*;
+use std::fs::OpenOptions;
 use std::io::{Seek, SeekFrom, Write};
+use std::os::unix::fs::OpenOptionsExt;
 use std::os::unix::prelude::OsStrExt;
 use std::path::Path;
 use std::process::{Command, Stdio};
@@ -30,13 +32,25 @@ fn wait_for_port(port: u16) {
     }
 }
 
+fn which(cmd: &str) -> String {
+    String::from_utf8_lossy(
+        &Command::new("sh")
+            .arg("-c")
+            .arg(format!("command -v {cmd}"))
+            .assert()
+            .get_output()
+            .stdout,
+    )
+    .trim_end()
+    .to_owned()
+}
+
 /// Spawns a nixseparatedebuginfod on a random port
 ///
 /// returns the port and child handle. Don't forget to kill it.
 ///
 /// If substituters is not None, hacks the environment so that nix show-config
-/// lists those substituters. This hack should be ignore by actual nix-store commands
-/// as these go through the daemon
+/// lists those substituters but nix-store commands are not affected.
 fn spawn_server(t: &TempDir, substituters: Option<Vec<&str>>) -> (u16, std::process::Child) {
     let port: u16 = 3000 + rand::random::<u8>() as u16;
     let mut cmd = nixseparatedebuginfod(t);
@@ -44,10 +58,35 @@ fn spawn_server(t: &TempDir, substituters: Option<Vec<&str>>) -> (u16, std::proc
     cmd.arg(format!("127.0.0.1:{port}"));
     suicide(&mut cmd);
     if let Some(substituters) = substituters {
+        let current_nix = dbg!(which("nix"));
+        let sh = dbg!(which("sh"));
         let nix_conf = file_in(t, "nix.conf");
         let substituters_as_str = &substituters.join(" ");
-        std::fs::write(nix_conf, format!("substituters = {substituters_as_str}\ntrusted-substituters = {substituters_as_str}")).unwrap();
-        cmd.env("NIX_CONF_DIR", t.path().display().to_string());
+        std::fs::write(nix_conf, format!("substituters = {substituters_as_str}\ntrusted-substituters = {substituters_as_str}\n")).unwrap();
+        let fake_bin = t.path().join(format!("fakebin{port}"));
+        std::fs::create_dir_all(&fake_bin).unwrap();
+        let fake_nix = fake_bin.join("nix");
+        let mut fd = OpenOptions::new()
+            .create(true)
+            .truncate(true)
+            .write(true)
+            .mode(0o750)
+            .open(fake_nix)
+            .unwrap();
+        let nix_conf_dir = t.path().display().to_string();
+        write!(
+            &mut fd,
+            "#!{sh}\nexport NIX_CONF_DIR='{nix_conf_dir}'\nexec {current_nix} \"$@\"\n"
+        )
+        .unwrap();
+        cmd.env(
+            "PATH",
+            format!(
+                "{}:{}",
+                fake_bin.to_string_lossy().as_ref(),
+                std::env::var("PATH").unwrap()
+            ),
+        );
     }
     cmd.env(
         "RUST_LOG",
@@ -297,7 +336,7 @@ fn test_normal() {
     assert!(dbg!(out).contains("1051\tmain (int argc, char **argv)"));
 
     // nix has source in flat files
-    let output: PathBuf = file_in(&t, "nix");
+    let output: PathBuf = file_in(&t, "nixstorepath");
     nix_build("nix", &output, None::<PathBuf>);
     // we will test fetching the source of a template instantiation from a header-only library
     // disabled until nix bin output drops its reference to nlohmann_json
@@ -315,7 +354,7 @@ fn test_normal() {
         &t,
         &exe,
         port,
-        "start\nl\nl nlohmann::detail::output_stream_adapter<char>::write_character(char)\n",
+        "start\nl\nn\nl\nl nlohmann::detail::output_stream_adapter<char>::write_character(char)\n",
     );
     // gdb fetched the source of main()
     assert!(dbg!(&out).contains("389\tint main(int argc, char * * argv)"));

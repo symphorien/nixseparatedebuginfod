@@ -2,7 +2,6 @@
 let
   secret-key = "key-name:/COlMSRbehSh6YSruJWjL+R0JXQUKuPEn96fIb+pLokEJUjcK/2Gv8Ai96D7JGay5gDeUTx5wdpPgNvum9YtwA==";
   public-key = "key-name:BCVI3Cv9hr/AIveg+yRmsuYA3lE8ecHaT4Db7pvWLcA=";
-  sl = pkgs.sl.overrideAttrs (_: { separateDebugInfo = true; });
 in
 {
   name = "fetch-drv-from-cache";
@@ -24,6 +23,9 @@ in
   };
   /* the machine where we need the debuginfo */
   nodes.machine = {
+    virtualisation.useNixStoreImage = true;
+    virtualisation.writableStore = true;
+
     services.nixseparatedebuginfod.enable = true;
     nixpkgs.overlays = [ overlay ];
     nix.settings = {
@@ -35,9 +37,10 @@ in
       pkgs.gdb
       (pkgs.writeShellScriptBin "wait_for_indexation" ''
         set -x
-        while debuginfod-find debuginfo ${builtins.unsafeDiscardStringContext "${sl}"}/bin/sl |& grep 'File too large'; do
+        while debuginfod-find debuginfo "$1"/bin/sl |& grep 'File too large'; do
           sleep 1;
         done
+        echo "debuginfod-find stopped saying File too large"
       '')
     ];
     system.extraDependencies = [
@@ -60,22 +63,23 @@ in
       # it's important to build in the vm to avoid a situation where
       # the deriver inherited from the substituter is not the same as
       # the one evaluated from nixpkgs locally
-      cache.succeed("nix-build -E 'with import ${pkgs.path} {}; sl.overrideAttrs (_: { separateDebugInfo = true; })'")
-      cache.succeed("nix-store --query --deriver ${sl}/bin/sl |& logger --stderr |& grep /nix/store")
+      sl_path = cache.succeed("nix-build -E 'with import ${pkgs.path} {}; sl.overrideAttrs (_: { separateDebugInfo = true; })'").strip()
+      print(f"sl has path {sl_path}")
+      cache.succeed(f"nix-store --query --deriver {sl_path} |& logger --stderr |& grep /nix/store")
 
     with subtest("fetch sl, but not its drv file"):
-      machine.succeed("nix-store --realise ${sl}")
+      machine.succeed(f"nix-store --realise {sl_path}")
 
-      machine.succeed("nix-store --query --deriver ${sl}/bin/sl |& logger --stderr |& grep /nix/store")
-      machine.succeed("[ ! -d $(nix-store --query --deriver ${sl}/bin/sl) ]")
+      machine.succeed(f"nix-store --query --deriver {sl_path}/bin/sl |& logger --stderr |& grep /nix/store")
+      machine.succeed(f"[ ! -e $(nix-store --query --deriver {sl_path} ) ]")
 
-    machine.succeed("timeout 600 wait_for_indexation")
+    machine.succeed(f"timeout 600 wait_for_indexation {sl_path}")
 
     # obtaining debuginfo requires fetching the drv file from the cache
-    machine.succeed("debuginfod-find debuginfo ${sl}/bin/sl")
+    machine.succeed(f"debuginfod-find debuginfo {sl_path}/bin/sl")
 
     # test that gdb can fetch source
-    out = machine.succeed("gdb ${sl}/bin/sl --batch -x ${builtins.toFile "commands" ''
+    out = machine.succeed(f"gdb {sl_path}/bin/sl --batch -x ${builtins.toFile "commands" ''
     start
     l
     ''}")
