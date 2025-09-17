@@ -139,7 +139,8 @@ impl StoreWatcher {
         let mut unfinished_batches = FuturesOrdered::new();
         unfinished_batches.push_back(batch_handle);
         let mut entry_buffer = Vec::with_capacity(BATCH_SIZE);
-        let mut get_new_batches = true;
+        let mut entries_tx_to_schedule_new_batches = Some(entries_tx);
+        let mut just_wait_for_entries = false;
         loop {
             tokio::select! {
                 entry = entries_rx.recv() => {
@@ -153,10 +154,16 @@ impl StoreWatcher {
                                 }
                             }
                         },
-                        None => tracing::warn!("entries_rx closed"),
+                        None => {
+                            // no more entries to be recorded
+                            self.cache.register(&entry_buffer).await.context("registering entries").or_warn();
+                            entry_buffer.clear();
+                            tracing::info!("Done indexing new store paths");
+                            return;
+                        }
                     }
                 }
-                id = unfinished_batches.next() => {
+                id = unfinished_batches.next(), if !just_wait_for_entries => {
                     match id {
                         Some(id) => {
                             match self.cache.register(&entry_buffer).await {
@@ -169,42 +176,43 @@ impl StoreWatcher {
                             }
                         },
                         None => {
-                            // there are no more running batches
-                            self.cache.register(&entry_buffer).await.context("registering entries").or_warn();
-                            entry_buffer.clear();
-                            tracing::info!("Done indexing new store paths");
-                            return;
+                            tracing::debug!("all batches examined, waiting for in-flight entries to be recorded");
+                            just_wait_for_entries = true;
                         },
                     }
                 }
             }
-            if get_new_batches && self.semaphore.available_permits() > 0 {
-                tracing::debug!("considering starting a new batch of store paths to index");
-                let (paths, id) = match get_new_store_path_batch(max_id).await {
-                    Ok(x) => x,
-                    Err(e) => {
-                        tracing::warn!("cannot read nix store db: {:#}", e);
-                        continue;
+            match entries_tx_to_schedule_new_batches {
+                Some(ref entries_tx) if self.semaphore.available_permits() > 0 => {
+                    tracing::debug!("considering starting a new batch of store paths to index");
+                    let (paths, id) = match get_new_store_path_batch(max_id).await {
+                        Ok(x) => x,
+                        Err(e) => {
+                            tracing::warn!("cannot read nix store db: {:#}", e);
+                            continue;
+                        }
+                    };
+                    let batch: Vec<_> = paths
+                        .into_iter()
+                        .map(|path| self.index_store_path(path, entries_tx.clone()))
+                        .collect();
+                    if batch.is_empty() {
+                        tracing::debug!("batch is empty");
+                        // drops entries_tx which allows the function to return
+                        entries_tx_to_schedule_new_batches = None;
+                    } else {
+                        tracing::debug!(
+                            size = batch.len(),
+                            start = max_id,
+                            end = id,
+                            "Indexing new batch of paths"
+                        );
+                        let batch_handle = join_all(batch).map(move |_| id).boxed();
+                        max_id = id;
+                        unfinished_batches.push_back(batch_handle);
                     }
-                };
-                let batch: Vec<_> = paths
-                    .into_iter()
-                    .map(|path| self.index_store_path(path, entries_tx.clone()))
-                    .collect();
-                if batch.is_empty() {
-                    tracing::debug!("batch is empty");
-                    get_new_batches = false;
-                } else {
-                    tracing::debug!(
-                        size = batch.len(),
-                        start = max_id,
-                        end = id,
-                        "Indexing new batch of paths"
-                    );
-                    let batch_handle = join_all(batch).map(move |_| id).boxed();
-                    max_id = id;
-                    unfinished_batches.push_back(batch_handle);
                 }
+                _ => {}
             }
         }
     }
