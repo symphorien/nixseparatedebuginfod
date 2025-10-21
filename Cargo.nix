@@ -4141,7 +4141,7 @@ rec {
       };
       "nixseparatedebuginfod" = rec {
         crateName = "nixseparatedebuginfod";
-        version = "0.4.0";
+        version = "0.4.1";
         edition = "2021";
         crateBin = [
           {
