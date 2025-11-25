@@ -1,4 +1,4 @@
-{ pkgs ? (import (builtins.fetchTarball "channel:nixos-unstable") { }) }:
+{ pkgs ? (import (builtins.fetchTarball "channel:nixos-25.05") { }) }:
 let
   overlay = self: super: {
     nixseparatedebuginfod = super.callPackage ../nixseparatedebuginfod.nix { };

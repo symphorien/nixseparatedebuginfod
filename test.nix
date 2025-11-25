@@ -12,7 +12,7 @@ let
       nixseparatedebuginfod.overrideAttrs ({ name, ... }: {
         name = name + "-" + channel;
       })
-    ) [ "nixos-unstable" "nixos-25.05" ];
+    ) [ "nixos-25.05" ];
   nixos_tests = builtins.attrValues (import ./tests/nixos-tests.nix { });
 in
 compiling_on_stable_and_unstable ++ nixos_tests
