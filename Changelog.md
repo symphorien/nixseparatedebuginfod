@@ -5,7 +5,7 @@ SPDX-License-Identifier: CC0-1.0
 -->
 
 # `v0.4.1`
-* fix CVE-2025-61557: nixseparatedebuginfod < `0.4.1` would serve any file on the system it could read, even outside the nix store. When using the NixOS module, nixseparatedebuginfod runs as a systemd dynamic user and listens on localhost, which means that this bug only allows local users to read world-readable files, which is unlikely to be a problem. However different setups where nixseparatedebuginfod runs as a user with access to sensitive files and/or listens on the open network should upgrade. Please note that even with the fix, nixseparatedebuginfod will disclose the content of any file in the store to clients that request it. This is by design and is unlikely to ever change.
+* fix CVE-2025-61557: Due to a path traversal issue, nixseparatedebuginfod < `0.4.1` would serve any file on the system it could read, even outside the nix store. When using the NixOS module, nixseparatedebuginfod runs as a systemd dynamic user and listens on localhost, which means that this bug only allows local users to read world-readable files, which is unlikely to be a problem. However different setups where nixseparatedebuginfod runs as a user with access to sensitive files and/or listens on the open network should upgrade. Please note that even with the fix, nixseparatedebuginfod will disclose the content of any file in the store to clients that request it. This is by design and is unlikely to ever change.
 
 # `v0.4.0`
 
