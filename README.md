@@ -4,6 +4,8 @@ SPDX-FileCopyrightText: 2023 Guillaume Girol <symphorien+git@xlumurb.eu>
 SPDX-License-Identifier: CC0-1.0
 -->
 
+# !!! Deprecated in favor of [`nixseparatedebuginfod2`](https://github.com/symphorien/nixseparatedebuginfod2) !!!
+
 # `nixseparatedebuginfod`
 
 Downloads and provides debug symbols and source code for nix derivations to `gdb` and other `debuginfod`-capable debuggers as needed.
